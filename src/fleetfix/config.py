@@ -11,6 +11,28 @@ from pathlib import Path
 AUDIT_LOG_PATH = Path("/var/log/fleetfix-audit.log")
 USER_CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "fleetfix"
 USER_CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "fleetfix"
+USER_STATE_DIR = (
+    Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state")) / "fleetfix"
+)
+
+
+def resolve_audit_path() -> Path:
+    """Pick a writable audit log path.
+
+    Production: /var/log/fleetfix-audit.log (writable as root, group adm
+    readable). Development / non-privileged: fall back to the XDG state
+    dir so the app still produces an audit trail when run as `appuser`.
+    """
+    primary = AUDIT_LOG_PATH
+    try:
+        primary.parent.mkdir(parents=True, exist_ok=True)
+        primary.touch(exist_ok=True)
+        return primary
+    except (OSError, PermissionError):
+        fallback = USER_STATE_DIR / "audit.log"
+        fallback.parent.mkdir(parents=True, exist_ok=True)
+        return fallback
+
 
 GITHUB_RELEASES_URL = "https://api.github.com/repos/KingPin/FleetFix/releases/latest"
 DEFAULT_BINARY_PATH = Path("/usr/local/bin/fleetfix")

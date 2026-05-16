@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from fleetfix.app import FleetFixApp
@@ -9,6 +11,13 @@ from fleetfix.screens.dashboard import DashboardView, MetricCard
 from fleetfix.screens.placeholder import PlaceholderView
 from fleetfix.widgets.nav import Nav
 from fleetfix.widgets.topbar import TopBar
+
+
+@pytest.fixture(autouse=True)
+def _audit_in_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Redirect resolve_audit_path() so tests don't fight /var/log permissions."""
+    audit_file = tmp_path / "audit.log"
+    monkeypatch.setattr("fleetfix.app.resolve_audit_path", lambda: audit_file)
 
 
 @pytest.mark.asyncio
