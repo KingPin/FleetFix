@@ -1,0 +1,119 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fleetfix"
+version = "0.1.0"
+description = "Terminal-UI triage toolbox for Ubuntu/Debian fleet operators"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    {name = "KingPin", email = "KingPin@users.noreply.github.com"},
+]
+keywords = ["tui", "sysadmin", "triage", "fleet", "ubuntu", "debian"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console :: Curses",
+    "Intended Audience :: System Administrators",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Systems Administration",
+]
+
+dependencies = [
+    "textual>=0.58.0",
+    "rich>=13.7.0",
+    "psutil>=5.9.0",
+    "pyyaml>=6.0",
+    "httpx>=0.27.0",
+    "packaging>=24.0",
+    "opentelemetry-api>=1.25.0",
+    "opentelemetry-sdk>=1.25.0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.25.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pytest-textual-snapshot>=0.4",
+    "pytest-cov>=5.0",
+    "ruff>=0.4.0",
+    "mypy>=1.10",
+    "pyinstaller>=6.0",
+]
+
+[project.scripts]
+fleetfix = "fleetfix.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/KingPin/FleetFix"
+Issues = "https://github.com/KingPin/FleetFix/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+fleetfix = ["py.typed", "**/*.tcss", "**/*.yml"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "RUF", # ruff-specific
+    "S",   # flake8-bandit (security)
+]
+ignore = [
+    "E501",  # line length handled by formatter
+    "S101",  # assert allowed in tests
+    "S603",  # subprocess calls are core to this tool
+    "S607",  # partial executable paths are intentional (ping, ss, smartctl)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S", "B"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--cov=fleetfix",
+    "--cov-report=term-missing",
+]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "integration: tests that touch the real filesystem or subprocesses",
+    "tier2: tests that require sudo (skipped in CI unless explicitly enabled)",
+]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_unreachable = true
+warn_redundant_casts = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+[[tool.mypy.overrides]]
+module = ["psutil.*", "opentelemetry.*"]
+ignore_missing_imports = true
