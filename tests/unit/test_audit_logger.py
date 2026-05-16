@@ -150,3 +150,31 @@ def test_operator_falls_back_to_unknown(monkeypatch: pytest.MonkeyPatch) -> None
     op = Operator.from_environment()
     assert op.unix_user == "unknown"
     assert op.source_ip is None
+
+
+def test_sink_receives_each_record(tmp_path: Path, operator: Operator) -> None:
+    received: list[dict] = []
+    logger = AuditLogger(
+        tmp_path / "audit.log",
+        operator=operator,
+        sink=received.append,
+    )
+    logger.event("fleetfix.launch")
+    with logger.action("storage.delete", target={"path": "/tmp/x"}):
+        pass
+    assert [r["phase"] for r in received] == ["event", "intent", "result"]
+    # Local file mirrors the same records.
+    assert len(_read_lines(logger.path)) == 3
+
+
+def test_sink_exception_does_not_break_local_logging(tmp_path: Path, operator: Operator) -> None:
+    def explode(record: dict) -> None:
+        raise RuntimeError("downstream broken")
+
+    logger = AuditLogger(tmp_path / "audit.log", operator=operator, sink=explode)
+    # Must not raise — sink errors are swallowed, local file stays authoritative.
+    logger.event("fleetfix.launch")
+    with logger.action("docker.truncate_log", target={"container_id": "abc"}):
+        pass
+    records = _read_lines(logger.path)
+    assert len(records) == 3

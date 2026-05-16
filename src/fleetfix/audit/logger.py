@@ -23,11 +23,12 @@ documents what was attempted.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import platform
 import threading
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -35,6 +36,11 @@ from pathlib import Path
 from typing import Any
 
 from fleetfix import __version__
+
+_log = logging.getLogger(__name__)
+
+AuditSink = Callable[[dict[str, Any]], None]
+"""Optional secondary destination called with each record dict after local write."""
 
 
 def _utcnow_iso() -> str:
@@ -112,11 +118,13 @@ class AuditLogger:
         operator: Operator,
         host: str | None = None,
         session_id: str | None = None,
+        sink: AuditSink | None = None,
     ) -> None:
         self.path = path
         self.operator = operator
         self.host = host or platform.node()
         self.session_id = session_id or str(uuid.uuid4())
+        self.sink = sink
         self._seq = 0
         self._lock = threading.Lock()
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -190,6 +198,13 @@ class AuditLogger:
             }
             with self.path.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+        if self.sink is not None:
+            # Sink runs OUTSIDE the lock — the local file is the authoritative
+            # record, the sink is best-effort and must never block local writes.
+            try:
+                self.sink(record)
+            except Exception:
+                _log.exception("audit sink raised; record was written locally")
 
 
 def read_recent(path: Path, *, limit: int = 200) -> list[dict[str, Any]]:
