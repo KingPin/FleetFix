@@ -18,6 +18,7 @@ from fleetfix.privilege import detect as detect_privilege
 from fleetfix.screens.audit_log import AuditLogView
 from fleetfix.screens.dashboard import DashboardView
 from fleetfix.screens.disk import DiskView
+from fleetfix.screens.docker import DockerView
 from fleetfix.screens.network import NetworkView
 from fleetfix.screens.placeholder import PlaceholderView
 from fleetfix.screens.processes import ProcessesView
@@ -33,7 +34,6 @@ class AppContext:
 
 
 _VIEW_MILESTONES = {
-    "docker": "6",
     "services": "7",
 }
 
@@ -83,6 +83,9 @@ class FleetFixApp(App[None]):
                         continue
                     if item.key == "disk":
                         yield DiskView(id="view-disk")
+                        continue
+                    if item.key == "docker":
+                        yield DockerView(id="view-docker")
                         continue
                     if item.key == "processes":
                         yield ProcessesView(id="view-processes")
