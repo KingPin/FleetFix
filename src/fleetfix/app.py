@@ -17,6 +17,7 @@ from fleetfix.privilege import PrivilegeState
 from fleetfix.privilege import detect as detect_privilege
 from fleetfix.screens.audit_log import AuditLogView
 from fleetfix.screens.dashboard import DashboardView
+from fleetfix.screens.network import NetworkView
 from fleetfix.screens.placeholder import PlaceholderView
 from fleetfix.screens.storage import StorageView
 from fleetfix.widgets.nav import NAV_ITEMS, Nav
@@ -30,7 +31,6 @@ class AppContext:
 
 
 _VIEW_MILESTONES = {
-    "network": "4",
     "docker": "6",
     "processes": "5",
     "services": "7",
@@ -76,6 +76,9 @@ class FleetFixApp(App[None]):
                         continue
                     if item.key == "storage":
                         yield StorageView(id="view-storage")
+                        continue
+                    if item.key == "network":
+                        yield NetworkView(id="view-network")
                         continue
                     yield PlaceholderView(
                         item.label,
