@@ -8,7 +8,6 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-
 AUDIT_LOG_PATH = Path("/var/log/fleetfix-audit.log")
 USER_CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "fleetfix"
 USER_CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "fleetfix"

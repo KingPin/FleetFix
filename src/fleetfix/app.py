@@ -33,8 +33,10 @@ class FleetFixApp:
             f"FleetFix {self.ctx.version} on {self.host.hostname} "
             f"({self.host.os_pretty} / {self.host.kernel})"
         )
-        privilege = "root" if self.privilege.is_root else (
-            "sudo-ready" if self.privilege.can_tier2 else "tier1-only"
+        privilege = (
+            "root"
+            if self.privilege.is_root
+            else ("sudo-ready" if self.privilege.can_tier2 else "tier1-only")
         )
         mode = "read-only" if self.ctx.read_only else "normal"
         print(banner)
