@@ -81,3 +81,45 @@ def test_refuse_raises_with_match_info() -> None:
 
 def test_refuse_passes_through_safe_paths(tmp_path: Path) -> None:
     refuse_if_blacklisted(tmp_path / "harmless.txt")  # should not raise
+
+
+def test_symlink_chain_to_blacklisted_path_is_caught(tmp_path: Path) -> None:
+    """A multi-hop symlink chain must still resolve through to the real target."""
+    final_target = "/etc"
+    link_b = tmp_path / "b"
+    link_b.symlink_to(final_target)
+    link_a = tmp_path / "a"
+    link_a.symlink_to(link_b)
+    assert is_blacklisted(link_a) is not None
+
+
+def test_symlink_loop_does_not_crash(tmp_path: Path) -> None:
+    """Self-referential symlinks must be handled without raising."""
+    loop = tmp_path / "loop"
+    loop.symlink_to(loop)
+    # We don't care whether it's blacklisted — only that the lookup doesn't
+    # propagate the OSError/RuntimeError from .resolve().
+    is_blacklisted(loop)
+
+
+def test_broken_symlink_resolved_to_target_path(tmp_path: Path) -> None:
+    """Broken symlinks resolve to their (non-existent) target — still subject to blacklist."""
+    broken = tmp_path / "broken"
+    broken.symlink_to("/etc/this-does-not-exist")
+    assert is_blacklisted(broken) is not None
+
+
+def test_nested_symlink_pointing_under_blacklist(tmp_path: Path) -> None:
+    """A symlink that lands deep inside a blacklisted tree is caught."""
+    link = tmp_path / "log_link"
+    link.symlink_to("/var/lib/dpkg/status")
+    assert is_blacklisted(link) is not None
+
+
+def test_relative_target_resolved_against_cwd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bare relative path must be resolved before being matched."""
+    # Resolve relative paths against an /etc-rooted CWD via monkeypatch.
+    monkeypatch.chdir("/etc")
+    assert is_blacklisted(Path("./passwd")) is not None
