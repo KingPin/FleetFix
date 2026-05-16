@@ -29,7 +29,7 @@ async def test_app_mounts_with_all_components() -> None:
         assert app.query_one(Nav)
         assert app.query_one(DashboardView)
         cards = app.query(MetricCard)
-        assert len(list(cards)) == 4
+        assert len(list(cards)) == 5
 
 
 @pytest.mark.asyncio

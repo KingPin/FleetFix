@@ -15,7 +15,7 @@ from textual.containers import Grid
 from textual.widget import Widget
 from textual.widgets import Static
 
-from fleetfix.modules.system import metrics, thermal
+from fleetfix.modules.system import metrics, thermal, updates
 
 
 class MetricCard(Widget):
@@ -86,13 +86,21 @@ def _temp_severity(temp_c: float) -> str:
     return ""
 
 
+def _updates_severity(status: updates.UpdateStatus) -> str:
+    if status.security >= 5:
+        return "metric-critical"
+    if status.security > 0:
+        return "metric-warn"
+    return ""
+
+
 class DashboardView(Widget):
     DEFAULT_CSS = """
     DashboardView {
         height: 1fr;
     }
     DashboardView Grid {
-        grid-size: 2 2;
+        grid-size: 3 2;
         grid-gutter: 1 2;
         padding: 1 2;
         height: 1fr;
@@ -111,6 +119,7 @@ class DashboardView(Widget):
             yield MetricCard("Load avg (1 / 5 / 15)", id="card-load")
             yield MetricCard("Memory", id="card-mem")
             yield MetricCard("Thermal", id="card-thermal")
+            yield MetricCard("Pending updates", id="card-updates")
 
     def on_mount(self) -> None:
         self.refresh_metrics()
@@ -152,6 +161,18 @@ class DashboardView(Widget):
                 f"{hottest.type}: {hottest.temp_c:.1f}°C",
                 _temp_severity(hottest.temp_c),
             )
+
+        update_status = updates.get_update_status()
+        if update_status.source == "unavailable":
+            self._set("card-updates", "unavailable")
+        elif update_status.upgradable == 0:
+            self._set("card-updates", "up to date")
+        else:
+            line = f"{update_status.upgradable} upgradable"
+            if update_status.security:
+                line += f"  ({update_status.security} security)"
+            line += f"\nsource: {update_status.source}"
+            self._set("card-updates", line, _updates_severity(update_status))
 
     def _set(self, card_id: str, value: str, severity: str = "") -> None:
         card = self.query_one(f"#{card_id}", MetricCard)
