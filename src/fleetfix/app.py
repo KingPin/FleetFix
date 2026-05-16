@@ -17,6 +17,7 @@ from fleetfix.privilege import PrivilegeState
 from fleetfix.privilege import detect as detect_privilege
 from fleetfix.screens.audit_log import AuditLogView
 from fleetfix.screens.dashboard import DashboardView
+from fleetfix.screens.disk import DiskView
 from fleetfix.screens.network import NetworkView
 from fleetfix.screens.placeholder import PlaceholderView
 from fleetfix.screens.storage import StorageView
@@ -79,6 +80,9 @@ class FleetFixApp(App[None]):
                         continue
                     if item.key == "network":
                         yield NetworkView(id="view-network")
+                        continue
+                    if item.key == "disk":
+                        yield DiskView(id="view-disk")
                         continue
                     yield PlaceholderView(
                         item.label,

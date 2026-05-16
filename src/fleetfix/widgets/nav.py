@@ -22,6 +22,7 @@ NAV_ITEMS: tuple[NavItem, ...] = (
     NavItem("dashboard", "Dashboard"),
     NavItem("storage", "Storage"),
     NavItem("network", "Network"),
+    NavItem("disk", "Disk", tier2=True),
     NavItem("docker", "Docker", tier2=True),
     NavItem("processes", "Processes", tier2=True),
     NavItem("services", "Services", tier2=True),
