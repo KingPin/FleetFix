@@ -1,16 +1,23 @@
-"""Textual App root.
-
-Stub for milestone 1 — full UI lands in milestone 2. Importing this module
-must not raise on a headless system.
-"""
+"""Textual App root for FleetFix."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import ClassVar
+
+from textual.app import App, ComposeResult
+from textual.binding import Binding, BindingType
+from textual.containers import Horizontal
+from textual.widgets import ContentSwitcher, Footer
 
 from fleetfix import __version__
-from fleetfix.config import detect_host
+from fleetfix.config import HostInfo, detect_host
+from fleetfix.privilege import PrivilegeState
 from fleetfix.privilege import detect as detect_privilege
+from fleetfix.screens.dashboard import DashboardView
+from fleetfix.screens.placeholder import PlaceholderView
+from fleetfix.widgets.nav import NAV_ITEMS, Nav
+from fleetfix.widgets.topbar import TopBar
 
 
 @dataclass(frozen=True)
@@ -19,26 +26,62 @@ class AppContext:
     read_only: bool
 
 
-class FleetFixApp:
-    """Placeholder app shell — replaced by a real Textual `App` in M2."""
+_VIEW_MILESTONES = {
+    "storage": "4",
+    "network": "4",
+    "docker": "6",
+    "processes": "5",
+    "services": "7",
+    "audit": "3",
+}
+
+
+class FleetFixApp(App[None]):
+    TITLE = "FleetFix"
+    CSS = """
+    Horizontal#main {
+        height: 1fr;
+    }
+    ContentSwitcher#content {
+        height: 1fr;
+        width: 1fr;
+    }
+    """
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("q", "quit", "Quit"),
+        Binding("d", "switch('dashboard')", "Dashboard"),
+        Binding("u", "show_update", "Update"),
+    ]
 
     def __init__(self, *, read_only: bool = False) -> None:
+        super().__init__()
         self.ctx = AppContext(version=__version__, read_only=read_only)
-        self.host = detect_host()
-        self.privilege = detect_privilege()
+        self.host: HostInfo = detect_host()
+        self.privilege: PrivilegeState = detect_privilege()
 
-    def run(self) -> None:
-        # M2 will replace this with `textual.app.App.run`.
-        banner = (
-            f"FleetFix {self.ctx.version} on {self.host.hostname} "
-            f"({self.host.os_pretty} / {self.host.kernel})"
-        )
-        privilege = (
-            "root"
-            if self.privilege.is_root
-            else ("sudo-ready" if self.privilege.can_tier2 else "tier1-only")
-        )
-        mode = "read-only" if self.ctx.read_only else "normal"
-        print(banner)
-        print(f"  privilege: {privilege}  mode: {mode}")
-        print("  (Textual UI lands in milestone 2)")
+    def compose(self) -> ComposeResult:
+        yield TopBar(host=self.host, privilege=self.privilege, read_only=self.ctx.read_only)
+        with Horizontal(id="main"):
+            yield Nav(can_tier2=self.privilege.can_tier2)
+            with ContentSwitcher(initial="view-dashboard", id="content"):
+                yield DashboardView(id="view-dashboard")
+                for item in NAV_ITEMS:
+                    if item.key == "dashboard":
+                        continue
+                    yield PlaceholderView(
+                        item.label,
+                        _VIEW_MILESTONES.get(item.key, "TBD"),
+                        id=f"view-{item.key}",
+                    )
+        yield Footer()
+
+    def on_nav_selected(self, message: Nav.Selected) -> None:
+        self.action_switch(message.key)
+
+    def action_switch(self, key: str) -> None:
+        switcher = self.query_one("#content", ContentSwitcher)
+        target = f"view-{key}"
+        switcher.current = target
+
+    def action_show_update(self) -> None:
+        self.notify("Updater wires up in milestone 9", severity="information")
