@@ -70,3 +70,27 @@ def refresh_sudo_credential() -> bool:
         return result.returncode == 0
     except (subprocess.TimeoutExpired, OSError):
         return False
+
+
+def refresh_sudo_credential_quietly() -> bool:
+    """Non-interactive sudo keepalive — `sudo -nv`. Never prompts.
+
+    Use for the background keepalive timer. If the cached credential has
+    expired, returns False; the caller should escalate by switching to the
+    interactive refresh_sudo_credential() flow.
+    """
+    try:
+        result = subprocess.run(
+            ["sudo", "-n", "-v"],
+            check=False,
+            capture_output=True,
+            timeout=2,
+        )
+        return result.returncode == 0
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+
+
+# How often to refresh the cached sudo credential, in seconds. Sudo's default
+# timestamp_timeout is 5 minutes, so 4 keeps us comfortably under the wire.
+SUDO_KEEPALIVE_INTERVAL = 4 * 60
