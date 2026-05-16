@@ -8,7 +8,7 @@ import pytest
 
 from fleetfix.app import FleetFixApp
 from fleetfix.screens.dashboard import DashboardView, MetricCard
-from fleetfix.screens.placeholder import PlaceholderView
+from fleetfix.screens.services import ServicesView
 from fleetfix.widgets.nav import Nav
 from fleetfix.widgets.topbar import TopBar
 
@@ -47,7 +47,9 @@ async def test_dashboard_renders_metric_values() -> None:
 
 
 @pytest.mark.asyncio
-async def test_switching_to_placeholder_view_works() -> None:
+async def test_switching_views_works(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("fleetfix.screens.services.list_failed_units", lambda: [])
+    monkeypatch.setattr("fleetfix.screens.services.blame", lambda: [])
     app = FleetFixApp()
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -57,8 +59,7 @@ async def test_switching_to_placeholder_view_works() -> None:
 
         switcher = app.query_one("#content", ContentSwitcher)
         assert switcher.current == "view-services"
-        # services still lands in a later milestone, so the body is a PlaceholderView
-        visible = app.query_one("#view-services", PlaceholderView)
+        visible = app.query_one("#view-services", ServicesView)
         assert visible is not None
 
 
