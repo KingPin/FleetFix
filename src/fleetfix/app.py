@@ -18,6 +18,7 @@ from fleetfix.privilege import detect as detect_privilege
 from fleetfix.screens.audit_log import AuditLogView
 from fleetfix.screens.dashboard import DashboardView
 from fleetfix.screens.placeholder import PlaceholderView
+from fleetfix.screens.storage import StorageView
 from fleetfix.widgets.nav import NAV_ITEMS, Nav
 from fleetfix.widgets.topbar import TopBar
 
@@ -29,7 +30,6 @@ class AppContext:
 
 
 _VIEW_MILESTONES = {
-    "storage": "4",
     "network": "4",
     "docker": "6",
     "processes": "5",
@@ -73,6 +73,9 @@ class FleetFixApp(App[None]):
                         continue
                     if item.key == "audit":
                         yield AuditLogView(self.audit_path, id="view-audit")
+                        continue
+                    if item.key == "storage":
+                        yield StorageView(id="view-storage")
                         continue
                     yield PlaceholderView(
                         item.label,

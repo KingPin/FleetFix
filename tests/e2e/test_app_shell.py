@@ -51,14 +51,14 @@ async def test_switching_to_placeholder_view_works() -> None:
     app = FleetFixApp()
     async with app.run_test() as pilot:
         await pilot.pause()
-        app.action_switch("storage")
+        app.action_switch("network")
         await pilot.pause()
         from textual.widgets import ContentSwitcher
 
         switcher = app.query_one("#content", ContentSwitcher)
-        assert switcher.current == "view-storage"
-        # the visible widget should be a PlaceholderView
-        visible = app.query_one("#view-storage", PlaceholderView)
+        assert switcher.current == "view-network"
+        # network still lands in a later milestone, so the body is a PlaceholderView
+        visible = app.query_one("#view-network", PlaceholderView)
         assert visible is not None
 
 
