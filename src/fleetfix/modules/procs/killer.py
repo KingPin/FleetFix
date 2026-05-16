@@ -74,14 +74,19 @@ def send_signal(
             os.kill(pid, sig)
         except ProcessLookupError:
             call.set_result(errno="ESRCH")
-            return KillResult(pid=pid, signal=sig, ok=False, error="no such process")
+            return KillResult(pid=pid, signal=sig, ok=False, error=f"no such process: pid {pid}")
         except PermissionError as exc:
             call.set_result(errno="EPERM")
-            return KillResult(pid=pid, signal=sig, ok=False, error=f"permission denied: {exc}")
+            return KillResult(
+                pid=pid,
+                signal=sig,
+                ok=False,
+                error=f"permission denied for pid {pid} (try sudo): {exc}",
+            )
         except OSError as exc:
             name = errno.errorcode.get(exc.errno or 0, "EUNKNOWN")
             call.set_result(errno=name)
-            return KillResult(pid=pid, signal=sig, ok=False, error=str(exc))
+            return KillResult(pid=pid, signal=sig, ok=False, error=f"{name}: {exc}")
     return KillResult(pid=pid, signal=sig, ok=True)
 
 

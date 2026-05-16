@@ -45,9 +45,13 @@ def test_refuses_protected_pids(pid: int, audit: AuditLogger) -> None:
 
 def test_nonexistent_pid_returns_error(audit: AuditLogger) -> None:
     # PID 2^31 - 1 is the kernel max; vanishingly unlikely to exist.
-    result = send_signal(2**31 - 1, sig=signal.SIGTERM, audit=audit)
+    pid = 2**31 - 1
+    result = send_signal(pid, sig=signal.SIGTERM, audit=audit)
     assert not result.ok
     assert "no such process" in (result.error or "")
+    # The pid is included so an operator reading the message knows which
+    # process the tool tried to signal.
+    assert str(pid) in (result.error or "")
     lines = _read_audit(audit.path)
     # intent + result both written; result records ESRCH.
     assert [line["phase"] for line in lines] == ["intent", "result"]
@@ -103,6 +107,9 @@ def test_permission_error_is_surfaced(monkeypatch: pytest.MonkeyPatch, audit: Au
     monkeypatch.setattr(os, "kill", fake_kill)
     result = send_signal(99999, sig=signal.SIGTERM, audit=audit)
     assert not result.ok
-    assert "permission denied" in (result.error or "")
+    error_msg = result.error or ""
+    assert "permission denied" in error_msg
+    # The fix hint nudges the operator toward sudo escalation.
+    assert "sudo" in error_msg
     lines = _read_audit(audit.path)
     assert lines[-1]["result"]["errno"] == "EPERM"
