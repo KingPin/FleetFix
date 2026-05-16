@@ -12,7 +12,7 @@ from fleetfix.audit.logger import AuditLogger, Operator, _parse_ssh_source_ip, r
 
 @pytest.fixture
 def operator() -> Operator:
-    return Operator(unix_user="appuser", duo_principal=None, source_ip="10.1.2.3")
+    return Operator(unix_user="operator", auth_principal=None, source_ip="10.1.2.3")
 
 
 @pytest.fixture
@@ -94,9 +94,9 @@ def test_writes_each_field_correctly(logger: AuditLogger) -> None:
         pass
     intent = _read_lines(logger.path)[0]
     assert intent["host"] == "test-host"
-    assert intent["operator"]["unix_user"] == "appuser"
+    assert intent["operator"]["unix_user"] == "operator"
     assert intent["operator"]["source_ip"] == "10.1.2.3"
-    assert intent["operator"]["duo_principal"] is None
+    assert intent["operator"]["auth_principal"] is None
     assert intent["action"] == "docker.truncate_log"
     assert intent["target"]["container_id"] == "abc"
     assert intent["fleetfix_version"]

@@ -38,14 +38,14 @@ def test_load_otel_config_reads_yaml(tmp_path: Path) -> None:
         "endpoint: https://ingest.example.com:443\n"
         "service_name: fleetfix-test\n"
         "headers:\n"
-        "  signoz-access-token: abc\n"
+        "  x-otlp-token: abc\n"
         "insecure: false\n",
         encoding="utf-8",
     )
     cfg = load_otel_config(path=p, env={})
     assert cfg is not None
     assert cfg.endpoint == "https://ingest.example.com:443"
-    assert cfg.headers == {"signoz-access-token": "abc"}
+    assert cfg.headers == {"x-otlp-token": "abc"}
     assert cfg.insecure is False
     assert cfg.service_name == "fleetfix-test"
 
@@ -96,7 +96,7 @@ def test_flatten_attributes_promotes_known_fields() -> None:
         "seq": 7,
         "host": "web-01",
         "fleetfix_version": "0.1.0",
-        "operator": {"unix_user": "appuser", "duo_principal": None, "source_ip": "10.0.0.1"},
+        "operator": {"unix_user": "operator", "auth_principal": None, "source_ip": "10.0.0.1"},
         "result": {"ok": True, "error": None, "bytes_freed": 1234},
     }
     attrs = _flatten_attributes(rec)
@@ -106,10 +106,10 @@ def test_flatten_attributes_promotes_known_fields() -> None:
     assert attrs["fleetfix.seq"] == 7
     assert attrs["fleetfix.host"] == "web-01"
     assert attrs["fleetfix.version"] == "0.1.0"
-    assert attrs["fleetfix.operator.unix_user"] == "appuser"
+    assert attrs["fleetfix.operator.unix_user"] == "operator"
     assert attrs["fleetfix.operator.source_ip"] == "10.0.0.1"
-    # duo_principal=None should be dropped, not emitted as a null attr.
-    assert "fleetfix.operator.duo_principal" not in attrs
+    # auth_principal=None should be dropped, not emitted as a null attr.
+    assert "fleetfix.operator.auth_principal" not in attrs
     assert attrs["fleetfix.result.ok"] is True
 
 

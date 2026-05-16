@@ -124,8 +124,8 @@ def _flatten_attributes(record: dict[str, Any]) -> dict[str, Any]:
     operator = record.get("operator") or {}
     if operator.get("unix_user") is not None:
         out["fleetfix.operator.unix_user"] = operator["unix_user"]
-    if operator.get("duo_principal") is not None:
-        out["fleetfix.operator.duo_principal"] = operator["duo_principal"]
+    if operator.get("auth_principal") is not None:
+        out["fleetfix.operator.auth_principal"] = operator["auth_principal"]
     if operator.get("source_ip") is not None:
         out["fleetfix.operator.source_ip"] = operator["source_ip"]
     result = record.get("result")

@@ -30,10 +30,10 @@ class _Harness(App[None]):
 
 def _request(phrase: str = "DELETE") -> ConfirmRequest:
     return ConfirmRequest(
-        title="Delete /home/appuser/old.sql",
+        title="Delete /home/operator/old.sql",
         description="Will permanently remove 1.2 GB. This cannot be undone.",
         expected_phrase=phrase,
-        operator=Operator(unix_user="appuser", duo_principal=None, source_ip="10.1.2.3"),
+        operator=Operator(unix_user="operator", auth_principal=None, source_ip="10.1.2.3"),
     )
 
 

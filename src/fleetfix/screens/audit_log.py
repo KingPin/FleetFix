@@ -84,9 +84,9 @@ def _format_row(record: dict[str, Any]) -> tuple[str, str, str, str, str]:
     action = str(record.get("action", "?"))
     op = record.get("operator") or {}
     op_label = str(op.get("unix_user") or "?")
-    duo = op.get("duo_principal")
-    if duo:
-        op_label = f"{op_label} ({duo})"
+    auth = op.get("auth_principal")
+    if auth:
+        op_label = f"{op_label} ({auth})"
 
     result = record.get("result")
     if result is None:

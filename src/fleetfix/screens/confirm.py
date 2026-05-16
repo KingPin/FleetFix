@@ -96,8 +96,8 @@ class ConfirmModal(ModalScreen[bool]):
                 f"This action will be recorded as: "
                 f"{self.request.operator.unix_user}"
                 + (
-                    f" ({self.request.operator.duo_principal})"
-                    if self.request.operator.duo_principal
+                    f" ({self.request.operator.auth_principal})"
+                    if self.request.operator.auth_principal
                     else ""
                 )
                 + (

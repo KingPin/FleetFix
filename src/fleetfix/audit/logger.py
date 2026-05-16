@@ -8,7 +8,7 @@ Schema per line:
       "call_id": "<uuid4-per-action>",
       "seq": 1,
       "phase": "intent" | "result",
-      "operator": {"unix_user": ..., "duo_principal": ..., "source_ip": ...},
+      "operator": {"unix_user": ..., "auth_principal": ..., "source_ip": ...},
       "action": "docker.truncate_log",
       "target": {...},          # action-specific payload
       "result": {"ok": true, "error": null, ...} | null,
@@ -51,14 +51,22 @@ def _utcnow_iso() -> str:
 
 @dataclass(frozen=True)
 class Operator:
+    """Identity recorded against every audited action.
+
+    ``auth_principal`` is an optional, vendor-neutral slot for a second-factor
+    or SSO identity (Duo, Okta, Azure AD, GitHub SSO, etc.) populated by an
+    out-of-band mapper. FleetFix itself doesn't speak any specific auth
+    protocol — populate this from your own integration if you have one.
+    """
+
     unix_user: str
-    duo_principal: str | None = None
+    auth_principal: str | None = None
     source_ip: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "unix_user": self.unix_user,
-            "duo_principal": self.duo_principal,
+            "auth_principal": self.auth_principal,
             "source_ip": self.source_ip,
         }
 
@@ -66,7 +74,7 @@ class Operator:
     def from_environment(cls) -> Operator:
         unix_user = os.environ.get("SUDO_USER") or os.environ.get("USER") or "unknown"
         source_ip = _parse_ssh_source_ip(os.environ.get("SSH_CONNECTION"))
-        return cls(unix_user=unix_user, duo_principal=None, source_ip=source_ip)
+        return cls(unix_user=unix_user, auth_principal=None, source_ip=source_ip)
 
 
 def _parse_ssh_source_ip(ssh_connection: str | None) -> str | None:
