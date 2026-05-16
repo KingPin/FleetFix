@@ -23,17 +23,7 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Disable every destructive action (training / shadow mode).",
     )
-    parser.add_argument(
-        "--json",
-        choices=["health"],
-        help="Emit a structured report to stdout and exit (no TUI).",
-    )
     args = parser.parse_args(argv)
-
-    if args.json == "health":
-        from fleetfix.cli import json_health
-
-        return json_health.run()
 
     from fleetfix.app import FleetFixApp
 
