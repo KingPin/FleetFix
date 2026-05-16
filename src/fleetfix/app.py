@@ -12,6 +12,7 @@ from textual.widgets import ContentSwitcher, Footer
 
 from fleetfix import __version__
 from fleetfix.audit.logger import AuditLogger, Operator
+from fleetfix.audit.otel import load_otel_config, make_sink
 from fleetfix.config import HostInfo, detect_host, resolve_audit_path
 from fleetfix.privilege import PrivilegeState
 from fleetfix.privilege import detect as detect_privilege
@@ -60,7 +61,12 @@ class FleetFixApp(App[None]):
         self.host: HostInfo = detect_host()
         self.privilege: PrivilegeState = detect_privilege()
         self.audit_path = resolve_audit_path()
-        self.audit = AuditLogger(self.audit_path, operator=Operator.from_environment())
+        self._otel_sink = make_sink(load_otel_config())
+        self.audit = AuditLogger(
+            self.audit_path,
+            operator=Operator.from_environment(),
+            sink=self._otel_sink.emit if self._otel_sink is not None else None,
+        )
 
     def compose(self) -> ComposeResult:
         yield TopBar(host=self.host, privilege=self.privilege, read_only=self.ctx.read_only)
@@ -112,6 +118,8 @@ class FleetFixApp(App[None]):
 
     def on_unmount(self) -> None:
         self.audit.event("fleetfix.exit", host=self.host.hostname)
+        if self._otel_sink is not None:
+            self._otel_sink.shutdown()
 
     def on_nav_selected(self, message: Nav.Selected) -> None:
         self.action_switch(message.key)
