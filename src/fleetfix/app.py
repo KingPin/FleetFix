@@ -20,6 +20,7 @@ from fleetfix.screens.dashboard import DashboardView
 from fleetfix.screens.disk import DiskView
 from fleetfix.screens.network import NetworkView
 from fleetfix.screens.placeholder import PlaceholderView
+from fleetfix.screens.processes import ProcessesView
 from fleetfix.screens.storage import StorageView
 from fleetfix.widgets.nav import NAV_ITEMS, Nav
 from fleetfix.widgets.topbar import TopBar
@@ -33,7 +34,6 @@ class AppContext:
 
 _VIEW_MILESTONES = {
     "docker": "6",
-    "processes": "5",
     "services": "7",
 }
 
@@ -83,6 +83,9 @@ class FleetFixApp(App[None]):
                         continue
                     if item.key == "disk":
                         yield DiskView(id="view-disk")
+                        continue
+                    if item.key == "processes":
+                        yield ProcessesView(id="view-processes")
                         continue
                     yield PlaceholderView(
                         item.label,
