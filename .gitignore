@@ -1,0 +1,66 @@
+# Internal planning / AI artifacts — never commit
+init.txt
+CLAUDE.md
+claude.md
+.claude/
+.claudecode/
+.cursor/
+.aider*
+GEMINI.md
+AGENTS.md
+.copilot/
+.continue/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.python-version
+*.egg-info/
+.eggs/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Build / dist
+build/
+dist/
+*.spec.bak
+pyinstaller-build/
+*.whl
+
+# Tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Secrets / local config
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+secrets.yml
+
+# Logs the dev environment may produce
+*.log
+logs/
