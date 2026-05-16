@@ -11,9 +11,11 @@ requires-python = ">=3.10"
 authors = [
     {name = "KingPin", email = "KingPin@users.noreply.github.com"},
 ]
+license = {text = "MIT"}
 keywords = ["tui", "sysadmin", "triage", "fleet", "ubuntu", "debian"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
+    "License :: OSI Approved :: MIT License",
     "Environment :: Console :: Curses",
     "Intended Audience :: System Administrators",
     "Operating System :: POSIX :: Linux",

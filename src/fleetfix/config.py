@@ -21,7 +21,7 @@ def resolve_audit_path() -> Path:
 
     Production: /var/log/fleetfix-audit.log (writable as root, group adm
     readable). Development / non-privileged: fall back to the XDG state
-    dir so the app still produces an audit trail when run as `appuser`.
+    dir so the app still produces an audit trail under the invoking user.
     """
     primary = AUDIT_LOG_PATH
     try:

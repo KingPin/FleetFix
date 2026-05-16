@@ -17,8 +17,8 @@ from pathlib import Path
 
 DEFAULT_STALE_AGE_DAYS = 30
 
-# Database dump / archive artifacts that often pile up in /home/appuser during
-# debugging and rarely get cleaned afterwards.
+# Database dump / archive artifacts that often pile up in user homes
+# during debugging and rarely get cleaned afterwards.
 STALE_ARTIFACT_GLOBS: tuple[str, ...] = (
     "*.sql",
     "*.sql.gz",
@@ -31,9 +31,9 @@ STALE_ARTIFACT_GLOBS: tuple[str, ...] = (
     "*.zip",
 )
 
-# Logrotate / journald leftovers under /home/appuser (and elsewhere a user can
-# write). Production system logs live under /var/log and aren't scanned by
-# Tier 1.
+# Logrotate / journald leftovers a user can write under their own home
+# (and elsewhere). Production system logs live under /var/log and
+# aren't scanned by Tier 1.
 LEGACY_LOG_GLOBS: tuple[str, ...] = (
     "*.log.[0-9]",
     "*.log.[0-9][0-9]",

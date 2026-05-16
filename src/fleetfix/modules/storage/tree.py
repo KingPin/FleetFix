@@ -1,9 +1,9 @@
 """Lazy directory tree with per-entry size and mtime.
 
-Used by the storage screen to render an interactive `/home/appuser` browser
-without `du`-walking the whole tree up front. The TUI calls `list_dir()`
-each time the operator expands a node; we compute size and mtime for the
-*immediate* children only and let the user drill in.
+Used by the storage screen to render an interactive home-directory
+browser without `du`-walking the whole tree up front. The TUI calls
+`list_dir()` each time the operator expands a node; we compute size
+and mtime for the *immediate* children only and let the user drill in.
 
 For directories, `size_bytes` is the size of the directory inode itself
 (typically 4 KiB) — not the recursive total. Recursive sizes are computed

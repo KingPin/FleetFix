@@ -36,9 +36,9 @@ def test_system_paths_are_blacklisted(target: str) -> None:
 @pytest.mark.parametrize(
     "target",
     [
-        "/home/appuser/dump.sql",
+        "/home/operator/dump.sql",
         "/tmp/staging.log",
-        "/opt/appdata/run",
+        "/opt/fleetfix-run",
         "/var/log/app.log",  # /var/log is fine — only /var/lib/{dpkg,apt} are blacklisted
         "/etcetera/notes",  # prefix-similar but not under /etc
     ],
