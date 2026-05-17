@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import platform
+import pwd
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+
+import yaml
+
+_log = logging.getLogger(__name__)
 
 AUDIT_LOG_PATH = Path("/var/log/fleetfix-audit.log")
 USER_CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "fleetfix"
@@ -14,6 +21,8 @@ USER_CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) 
 USER_STATE_DIR = (
     Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state")) / "fleetfix"
 )
+
+PATHS_CONFIG_PATH = USER_CONFIG_DIR / "paths.yml"
 
 
 def resolve_audit_path() -> Path:
@@ -84,3 +93,46 @@ def detect_host() -> HostInfo:
         has_systemd=Path("/run/systemd/system").exists(),
         has_docker=shutil.which("docker") is not None,
     )
+
+
+@dataclass(frozen=True)
+class InspectTarget:
+    """User whose footprint is being inspected (decoupled from the operator)."""
+
+    user: str
+    home: Path
+    uid: int
+
+
+def _read_paths_yaml(path: Path) -> dict[str, Any]:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        _log.warning("failed to parse %s: %s", path, exc)
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def resolve_inspect_target(
+    *, cli_user: str | None, paths_cfg: dict[str, Any]
+) -> InspectTarget | None:
+    """Pick the inspect-target user from CLI flag, paths.yml, or leave unset.
+
+    An empty CLI string ("") is an explicit clear that overrides paths.yml.
+    Unknown users log a warning and return None — we never silently substitute.
+    """
+    if cli_user == "":
+        return None
+    name = cli_user if cli_user else paths_cfg.get("target_user")
+    if not name:
+        return None
+    try:
+        entry = pwd.getpwnam(name)
+    except KeyError:
+        _log.warning("inspect target %r does not exist on this host", name)
+        return None
+    return InspectTarget(user=name, home=Path(entry.pw_dir), uid=entry.pw_uid)
