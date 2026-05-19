@@ -130,6 +130,24 @@ def test_flatten_attributes_drops_none_top_level() -> None:
     assert attrs["fleetfix.action"] == "x"
 
 
+def test_flatten_attributes_promotes_inspect_target() -> None:
+    rec = {"action": "x", "inspect_target": "appuser"}
+    attrs = _flatten_attributes(rec)
+    assert attrs["fleetfix.inspect_target"] == "appuser"
+
+
+def test_flatten_attributes_drops_null_inspect_target() -> None:
+    rec = {"action": "x", "inspect_target": None}
+    attrs = _flatten_attributes(rec)
+    assert "fleetfix.inspect_target" not in attrs
+
+
+def test_flatten_attributes_no_inspect_target_key_at_all() -> None:
+    rec = {"action": "x", "phase": "intent"}
+    attrs = _flatten_attributes(rec)
+    assert "fleetfix.inspect_target" not in attrs
+
+
 def test_severity_for_default_info() -> None:
     sev_num, sev_text = _severity_for({"action": "x"})
     assert sev_text == "INFO"
