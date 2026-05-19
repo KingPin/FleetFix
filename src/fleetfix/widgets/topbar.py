@@ -44,6 +44,9 @@ class TopBar(Widget):
     TopBar .topbar-update {
         color: $warning;
     }
+    TopBar .topbar-target {
+        color: $accent;
+    }
     """
 
     update_available: reactive[str | None] = reactive(None)
@@ -54,11 +57,13 @@ class TopBar(Widget):
         host: HostInfo,
         privilege: PrivilegeState,
         read_only: bool,
+        inspect_target_user: str | None = None,
     ) -> None:
         super().__init__()
         self.host = host
         self.privilege = privilege
         self.read_only = read_only
+        self.inspect_target_user = inspect_target_user
 
     def compose(self) -> ComposeResult:
         version_label = Static(f"FleetFix {__version__}", classes="topbar-segment topbar-version")
@@ -78,6 +83,13 @@ class TopBar(Widget):
         privilege_label = Static(privilege_text, classes=privilege_class)
 
         widgets = [version_label, host_label, privilege_label]
+        if self.inspect_target_user is not None:
+            widgets.append(
+                Static(
+                    f"Inspecting: {self.inspect_target_user}",
+                    classes="topbar-segment topbar-target",
+                )
+            )
         if self.read_only:
             widgets.append(Static("READ-ONLY", classes="topbar-segment topbar-mode-readonly"))
 

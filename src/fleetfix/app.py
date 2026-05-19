@@ -93,7 +93,12 @@ class FleetFixApp(App[None]):
         self.update_release: ReleaseInfo | None = None
 
     def compose(self) -> ComposeResult:
-        yield TopBar(host=self.host, privilege=self.privilege, read_only=self.ctx.read_only)
+        yield TopBar(
+            host=self.host,
+            privilege=self.privilege,
+            read_only=self.ctx.read_only,
+            inspect_target_user=self.inspect_target.user if self.inspect_target else None,
+        )
         with Horizontal(id="main"):
             yield Nav(can_tier2=self.privilege.can_tier2)
             with ContentSwitcher(initial="view-dashboard", id="content"):
