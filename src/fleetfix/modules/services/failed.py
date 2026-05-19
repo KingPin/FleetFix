@@ -8,6 +8,17 @@ Schema per row (whitespace-separated):
   UNIT  LOAD  ACTIVE  SUB  DESCRIPTION
 
 DESCRIPTION can contain spaces, so it's everything after the 4th column.
+
+Optional target-user filtering
+-------------------------------
+When `target_user` is supplied to `list_failed_units`, a single bulk
+`systemctl show -p User <unit1> <unit2> ...` call retrieves the owning user
+for every failed unit in one round-trip.  Units with no explicit `User=` are
+normalised to `"root"` (systemd's default) so that `target_user="root"`
+returns both explicitly-root and unspecified units.  Any error from the bulk
+show call (non-zero exit, FileNotFoundError, timeout, or a block-count
+mismatch) is treated conservatively: the function returns `[]` rather than
+returning a silently-unfiltered list.
 """
 
 from __future__ import annotations
@@ -48,7 +59,30 @@ def parse_failed_units(text: str) -> list[FailedUnit]:
     return out
 
 
-def list_failed_units() -> list[FailedUnit]:
+def parse_show_user(text: str) -> list[str]:
+    """Parse `systemctl show -p User unit1 unit2 ...` multi-block output.
+
+    Each block contains a `User=...` line; blocks are separated by blank
+    lines.  Empty `User=` (the default when no override is set) is normalised
+    to `"root"` since systemd runs unspecified units as root.
+    """
+    users: list[str] = []
+    for block in text.split("\n\n"):
+        for line in block.splitlines():
+            if line.startswith("User="):
+                value = line[len("User="):].strip()
+                users.append(value if value else "root")
+                break
+    return users
+
+
+def list_failed_units(target_user: str | None = None) -> list[FailedUnit]:
+    """List failed systemd units, optionally filtered by `User=` matching `target_user`.
+
+    A unit with no explicit `User=` is treated as `root`; it is therefore only
+    kept when `target_user == "root"`.  The filter is implemented with a single
+    bulk `systemctl show -p User <unit1> <unit2> ...` subprocess call.
+    """
     try:
         result = subprocess.run(
             [
@@ -68,4 +102,22 @@ def list_failed_units() -> list[FailedUnit]:
         return []
     if result.returncode != 0:
         return []
-    return parse_failed_units(result.stdout)
+    units = parse_failed_units(result.stdout)
+    if target_user is None or not units:
+        return units
+    try:
+        show = subprocess.run(
+            ["systemctl", "show", "-p", "User", *[u.name for u in units]],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return []
+    if show.returncode != 0:
+        return []
+    users = parse_show_user(show.stdout)
+    if len(users) != len(units):
+        return []
+    return [u for u, owner in zip(units, users, strict=False) if owner == target_user]
