@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
+from textual.css.query import NoMatches
 from textual.widget import Widget
 from textual.widgets import Button, DataTable, Input, Static
 
@@ -114,6 +115,20 @@ class StorageView(Widget):
                 yield Button("Check", id="env-check", variant="primary")
             yield Static("Enter a path and press Check.", id="env-result")
 
+    def _default_root(self) -> Path:
+        target = getattr(self.app, "inspect_target", None)
+        if target is not None:
+            return target.home
+        return Path.home()
+
+    def on_mount(self) -> None:
+        self._scan_root = self._default_root()
+        try:
+            self.query_one("#stale-root", Input).value = str(self._scan_root)
+            self.query_one("#env-input", Input).value = str(self._scan_root / ".env")
+        except NoMatches:
+            pass
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         bid = event.button.id
         if bid == "stale-scan":
@@ -128,7 +143,7 @@ class StorageView(Widget):
             days = int(self.query_one("#stale-days", Input).value or "30")
         except ValueError:
             days = 30
-        root_str = self.query_one("#stale-root", Input).value or str(Path.home())
+        root_str = self.query_one("#stale-root", Input).value or str(self._default_root())
         self._scan_root = Path(root_str).expanduser()
 
         self._candidates = find_stale(self._scan_root, older_than_days=days)

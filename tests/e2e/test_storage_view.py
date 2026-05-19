@@ -82,3 +82,22 @@ async def test_env_check_flags_missing_file(tmp_path: Path) -> None:
         await pilot.pause()
         result = app.query_one("#env-result", Static)
         assert "does not exist" in str(result.render())
+
+
+@pytest.mark.asyncio
+async def test_storage_uses_inspect_target_home(tmp_path: Path) -> None:
+    fake_home = tmp_path / "fake_home"
+    fake_home.mkdir()
+    from fleetfix.config import InspectTarget
+
+    app = FleetFixApp()
+    app.inspect_target = InspectTarget(user="targetuser", home=fake_home, uid=4242)
+    async with app.run_test(size=(160, 60)) as pilot:
+        await pilot.pause()
+        app.action_switch("storage")
+        await pilot.pause()
+
+        stale_root_input = app.query_one("#stale-root", Input)
+        env_input = app.query_one("#env-input", Input)
+        assert stale_root_input.value == str(fake_home)
+        assert env_input.value == str(fake_home / ".env")
