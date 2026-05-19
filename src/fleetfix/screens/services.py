@@ -15,6 +15,7 @@ from textual.containers import Horizontal, Vertical
 from textual.widget import Widget
 from textual.widgets import Button, DataTable, Static
 
+from fleetfix.config import InspectTarget
 from fleetfix.modules.services.boot import BlameEntry, blame
 from fleetfix.modules.services.failed import FailedUnit, list_failed_units
 from fleetfix.modules.services.journal import journal_tail
@@ -103,7 +104,9 @@ class ServicesView(Widget):
         self._refresh_blame()
 
     def _refresh_failed(self) -> None:
-        self._failed = list_failed_units()
+        target = getattr(self.app, "inspect_target", None)
+        target_user = target.user if isinstance(target, InspectTarget) else None
+        self._failed = list_failed_units(target_user=target_user)
         summary = self.query_one("#failed-summary", Static)
         table = self.query_one("#failed-table", DataTable)
         table.clear()
