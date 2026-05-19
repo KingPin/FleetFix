@@ -70,7 +70,7 @@ def parse_show_user(text: str) -> list[str]:
     for block in text.split("\n\n"):
         for line in block.splitlines():
             if line.startswith("User="):
-                value = line[len("User="):].strip()
+                value = line[len("User=") :].strip()
                 users.append(value if value else "root")
                 break
     return users
@@ -120,4 +120,4 @@ def list_failed_units(target_user: str | None = None) -> list[FailedUnit]:
     users = parse_show_user(show.stdout)
     if len(users) != len(units):
         return []
-    return [u for u, owner in zip(units, users, strict=False) if owner == target_user]
+    return [u for u, owner in zip(units, users, strict=True) if owner == target_user]
