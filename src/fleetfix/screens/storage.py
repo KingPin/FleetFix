@@ -22,6 +22,7 @@ from textual.widget import Widget
 from textual.widgets import Button, DataTable, Input, Static
 
 from fleetfix.audit.logger import Operator
+from fleetfix.config import InspectTarget
 from fleetfix.modules.storage.env_check import check_env_file
 from fleetfix.modules.storage.safe_delete import (
     BlacklistedPath,
@@ -117,7 +118,7 @@ class StorageView(Widget):
 
     def _default_root(self) -> Path:
         target = getattr(self.app, "inspect_target", None)
-        if target is not None:
+        if isinstance(target, InspectTarget):
             return target.home
         return Path.home()
 

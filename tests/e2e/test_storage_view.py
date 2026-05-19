@@ -10,6 +10,7 @@ import pytest
 from textual.widgets import Button, DataTable, Input, Static
 
 from fleetfix.app import FleetFixApp
+from fleetfix.config import InspectTarget
 
 
 @pytest.fixture(autouse=True)
@@ -88,7 +89,6 @@ async def test_env_check_flags_missing_file(tmp_path: Path) -> None:
 async def test_storage_uses_inspect_target_home(tmp_path: Path) -> None:
     fake_home = tmp_path / "fake_home"
     fake_home.mkdir()
-    from fleetfix.config import InspectTarget
 
     app = FleetFixApp()
     app.inspect_target = InspectTarget(user="targetuser", home=fake_home, uid=4242)
