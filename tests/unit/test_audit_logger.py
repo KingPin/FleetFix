@@ -178,3 +178,29 @@ def test_sink_exception_does_not_break_local_logging(tmp_path: Path, operator: O
         pass
     records = _read_lines(logger.path)
     assert len(records) == 3
+
+
+def test_inspect_target_defaults_to_null(logger: AuditLogger) -> None:
+    logger.event("fleetfix.launch")
+    with logger.action("storage.delete", target={"path": "/tmp/x"}):
+        pass
+    records = _read_lines(logger.path)
+    assert len(records) == 3
+    for rec in records:
+        assert "inspect_target" in rec
+        assert rec["inspect_target"] is None
+
+
+def test_inspect_target_landed_on_every_record(tmp_path: Path, operator: Operator) -> None:
+    logger = AuditLogger(
+        tmp_path / "audit.log",
+        operator=operator,
+        host="test-host",
+        session_id="22222222-2222-2222-2222-222222222222",
+        inspect_target="appuser",
+    )
+    logger.event("fleetfix.launch")
+    with logger.action("storage.delete", target={"path": "/home/appuser/x"}):
+        pass
+    records = _read_lines(logger.path)
+    assert [r["inspect_target"] for r in records] == ["appuser", "appuser", "appuser"]
