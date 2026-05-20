@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.css.query import NoMatches
 from textual.widget import Widget
 from textual.widgets import Button, DataTable, Input, Static
 
@@ -124,11 +123,8 @@ class StorageView(Widget):
 
     def on_mount(self) -> None:
         self._scan_root = self._default_root()
-        try:
-            self.query_one("#stale-root", Input).value = str(self._scan_root)
-            self.query_one("#env-input", Input).value = str(self._scan_root / ".env")
-        except NoMatches:
-            pass
+        self.query_one("#stale-root", Input).value = str(self._scan_root)
+        self.query_one("#env-input", Input).value = str(self._scan_root / ".env")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         bid = event.button.id

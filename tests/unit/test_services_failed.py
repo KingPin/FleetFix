@@ -61,6 +61,18 @@ def test_parse_show_user_empty() -> None:
     assert parse_show_user("") == []
 
 
+def test_parse_show_user_block_missing_user_defaults_to_root() -> None:
+    """Block with content but no `User=` line is defaulted to root."""
+    text = "User=root\n\nOther=value\n\nUser=appuser\n"
+    assert parse_show_user(text) == ["root", "root", "appuser"]
+
+
+def test_parse_show_user_skips_trailing_empty_block() -> None:
+    """Trailing `\\n\\n` should not produce a phantom entry."""
+    text = "User=root\n\nUser=appuser\n\n"
+    assert parse_show_user(text) == ["root", "appuser"]
+
+
 # ---------------------------------------------------------------------------
 # list_failed_units integration tests (subprocess mocked)
 # ---------------------------------------------------------------------------
@@ -116,30 +128,6 @@ def test_list_failed_units_filters_to_target() -> None:
     assert len(units) == 1
     assert units[0].name == "beta.service"
     assert mock_run.call_count == 2
-
-
-def test_list_failed_units_empty_user_is_root() -> None:
-    """Empty User= is treated as root: target='root' includes it; target='appuser' excludes it."""
-    from fleetfix.modules.services.failed import list_failed_units
-
-    # gamma has empty User= — should be included when target is root
-    mock_run = _make_run(_LIST_STDOUT, _SHOW_STDOUT)
-    with patch("fleetfix.modules.services.failed.subprocess.run", mock_run):
-        root_units = list_failed_units(target_user="root")
-
-    # alpha (User=root) and gamma (User=empty → root) should be included
-    root_names = {u.name for u in root_units}
-    assert "alpha.service" in root_names
-    assert "gamma.service" in root_names
-    assert "beta.service" not in root_names
-
-    # Now verify appuser target excludes the empty-User unit
-    mock_run2 = _make_run(_LIST_STDOUT, _SHOW_STDOUT)
-    with patch("fleetfix.modules.services.failed.subprocess.run", mock_run2):
-        gn_units = list_failed_units(target_user="appuser")
-
-    gn_names = {u.name for u in gn_units}
-    assert "gamma.service" not in gn_names
 
 
 def test_list_failed_units_target_root_includes_unspecified() -> None:

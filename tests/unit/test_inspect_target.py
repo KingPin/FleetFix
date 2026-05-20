@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from fleetfix.config import InspectTarget, _read_paths_yaml, resolve_inspect_target
+from fleetfix.config import InspectTarget, read_paths_yaml, resolve_inspect_target
 
 
 @pytest.fixture
@@ -61,23 +61,23 @@ def test_unknown_user_returns_none_and_warns(
 
 
 def test_read_paths_yaml_missing_file_returns_empty(tmp_path: Path) -> None:
-    assert _read_paths_yaml(tmp_path / "absent.yml") == {}
+    assert read_paths_yaml(tmp_path / "absent.yml") == {}
 
 
 def test_read_paths_yaml_parses_mapping(tmp_path: Path) -> None:
     p = tmp_path / "paths.yml"
     p.write_text("target_user: appuser\nstale_age_days: 30\n", encoding="utf-8")
-    out = _read_paths_yaml(p)
+    out = read_paths_yaml(p)
     assert out == {"target_user": "appuser", "stale_age_days": 30}
 
 
 def test_read_paths_yaml_non_mapping_returns_empty(tmp_path: Path) -> None:
     p = tmp_path / "paths.yml"
     p.write_text("- just\n- a\n- list\n", encoding="utf-8")
-    assert _read_paths_yaml(p) == {}
+    assert read_paths_yaml(p) == {}
 
 
 def test_read_paths_yaml_malformed_returns_empty(tmp_path: Path) -> None:
     p = tmp_path / "paths.yml"
     p.write_text("target_user: [unterminated\n", encoding="utf-8")
-    assert _read_paths_yaml(p) == {}
+    assert read_paths_yaml(p) == {}

@@ -17,8 +17,8 @@ from fleetfix.config import (
     PATHS_CONFIG_PATH,
     HostInfo,
     InspectTarget,
-    _read_paths_yaml,
     detect_host,
+    read_paths_yaml,
     resolve_audit_path,
     resolve_inspect_target,
 )
@@ -82,7 +82,7 @@ class FleetFixApp(App[None]):
         self._otel_sink = make_sink(load_otel_config())
         self.inspect_target: InspectTarget | None = resolve_inspect_target(
             cli_user=target_user,
-            paths_cfg=_read_paths_yaml(PATHS_CONFIG_PATH),
+            paths_cfg=read_paths_yaml(PATHS_CONFIG_PATH),
         )
         self.audit = AuditLogger(
             self.audit_path,

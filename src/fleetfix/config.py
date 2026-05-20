@@ -104,7 +104,7 @@ class InspectTarget:
     uid: int
 
 
-def _read_paths_yaml(path: Path) -> dict[str, Any]:
+def read_paths_yaml(path: Path) -> dict[str, Any]:
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:

@@ -62,17 +62,26 @@ def parse_failed_units(text: str) -> list[FailedUnit]:
 def parse_show_user(text: str) -> list[str]:
     """Parse `systemctl show -p User unit1 unit2 ...` multi-block output.
 
-    Each block contains a `User=...` line; blocks are separated by blank
-    lines.  Empty `User=` (the default when no override is set) is normalised
-    to `"root"` since systemd runs unspecified units as root.
+    Each block normally contains a `User=...` line; blocks are separated by
+    blank lines.  Empty `User=` (the default when no override is set) is
+    normalised to `"root"` since systemd runs unspecified units as root.
+    A block that has content but lacks a `User=` line is also defaulted to
+    `"root"`, so callers can rely on positional alignment with the input
+    unit list.  Pure-empty blocks (e.g. a trailing `\\n\\n`) are skipped.
     """
     users: list[str] = []
     for block in text.split("\n\n"):
+        if not block.strip():
+            continue
+        found = False
         for line in block.splitlines():
             if line.startswith("User="):
                 value = line[len("User=") :].strip()
                 users.append(value if value else "root")
+                found = True
                 break
+        if not found:
+            users.append("root")
     return users
 
 
