@@ -122,6 +122,8 @@ class ServicesView(Widget):
             table.add_row(u.name, u.sub, u.description)
 
     def _refresh_blame(self) -> None:
+        # Boot blame is host-level (per-boot unit timing) and intentionally
+        # NOT filtered by inspect_target — failed-units is, blame is not.
         self._blame = blame()
         summary = self.query_one("#blame-summary", Static)
         table = self.query_one("#blame-table", DataTable)
