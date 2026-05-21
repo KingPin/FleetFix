@@ -4,11 +4,18 @@ from __future__ import annotations
 
 import os
 import pwd
+from pathlib import Path
 
 import pytest
 
 from fleetfix.app import FleetFixApp
 from fleetfix.config import InspectTarget
+
+
+@pytest.fixture(autouse=True)
+def _audit_in_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Redirect audit writes to tmp_path so unit tests don't touch real state."""
+    monkeypatch.setattr("fleetfix.app.resolve_audit_path", lambda: tmp_path / "audit.log")
 
 
 @pytest.fixture
