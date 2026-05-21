@@ -7,17 +7,23 @@ Schema per line:
       "session_id": "<uuid4-per-app-run>",
       "call_id": "<uuid4-per-action>",
       "seq": 1,
-      "phase": "intent" | "result",
+      "phase": "intent" | "result" | "event",
       "operator": {"unix_user": ..., "auth_principal": ..., "source_ip": ...},
+      "inspect_target": "appuser" | null,
       "action": "docker.truncate_log",
       "target": {...},          # action-specific payload
       "result": {"ok": true, "error": null, ...} | null,
-      "fleetfix_version": "0.1.0"
+      "fleetfix_version": "1.1.0"
     }
 
 `intent` is written *before* the action runs, `result` after, sharing the
 same call_id. If the process crashes mid-action, the intent line still
 documents what was attempted.
+
+``inspect_target`` is set once on the logger at construction and stamped
+on every record so operator vs. target stays unambiguous in the trail —
+e.g. "operator opsadmin inspected appuser's host". The value is the target's
+username (a plain string, JSON-friendly) or null when no target is set.
 """
 
 from __future__ import annotations
@@ -127,12 +133,14 @@ class AuditLogger:
         host: str | None = None,
         session_id: str | None = None,
         sink: AuditSink | None = None,
+        inspect_target: str | None = None,
     ) -> None:
         self.path = path
         self.operator = operator
         self.host = host or platform.node()
         self.session_id = session_id or str(uuid.uuid4())
         self.sink = sink
+        self.inspect_target = inspect_target
         self._seq = 0
         self._lock = threading.Lock()
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -199,6 +207,7 @@ class AuditLogger:
                 "seq": self._seq,
                 "phase": phase,
                 "operator": self.operator.to_dict(),
+                "inspect_target": self.inspect_target,
                 "action": action,
                 "target": target,
                 "result": result,

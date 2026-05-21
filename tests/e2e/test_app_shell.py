@@ -48,7 +48,7 @@ async def test_dashboard_renders_metric_values() -> None:
 
 @pytest.mark.asyncio
 async def test_switching_views_works(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("fleetfix.screens.services.list_failed_units", lambda: [])
+    monkeypatch.setattr("fleetfix.screens.services.list_failed_units", lambda **_kwargs: [])
     monkeypatch.setattr("fleetfix.screens.services.blame", lambda: [])
     app = FleetFixApp()
     async with app.run_test() as pilot:

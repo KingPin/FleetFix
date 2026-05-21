@@ -114,6 +114,17 @@ class StorageView(Widget):
                 yield Button("Check", id="env-check", variant="primary")
             yield Static("Enter a path and press Check.", id="env-result")
 
+    def _default_root(self) -> Path:
+        app: FleetFixApp = self.app  # type: ignore[assignment]
+        if app.inspect_target is not None:
+            return app.inspect_target.home
+        return Path.home()
+
+    def on_mount(self) -> None:
+        self._scan_root = self._default_root()
+        self.query_one("#stale-root", Input).value = str(self._scan_root)
+        self.query_one("#env-input", Input).value = str(self._scan_root / ".env")
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         bid = event.button.id
         if bid == "stale-scan":
@@ -128,7 +139,7 @@ class StorageView(Widget):
             days = int(self.query_one("#stale-days", Input).value or "30")
         except ValueError:
             days = 30
-        root_str = self.query_one("#stale-root", Input).value or str(Path.home())
+        root_str = self.query_one("#stale-root", Input).value or str(self._default_root())
         self._scan_root = Path(root_str).expanduser()
 
         self._candidates = find_stale(self._scan_root, older_than_days=days)

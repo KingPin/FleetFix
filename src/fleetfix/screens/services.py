@@ -10,6 +10,8 @@ Two stacked panels:
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widget import Widget
@@ -18,6 +20,9 @@ from textual.widgets import Button, DataTable, Static
 from fleetfix.modules.services.boot import BlameEntry, blame
 from fleetfix.modules.services.failed import FailedUnit, list_failed_units
 from fleetfix.modules.services.journal import journal_tail
+
+if TYPE_CHECKING:
+    from fleetfix.app import FleetFixApp
 
 
 class ServicesView(Widget):
@@ -103,7 +108,9 @@ class ServicesView(Widget):
         self._refresh_blame()
 
     def _refresh_failed(self) -> None:
-        self._failed = list_failed_units()
+        app: FleetFixApp = self.app  # type: ignore[assignment]
+        target_user = app.inspect_target.user if app.inspect_target is not None else None
+        self._failed = list_failed_units(target_user=target_user)
         summary = self.query_one("#failed-summary", Static)
         table = self.query_one("#failed-table", DataTable)
         table.clear()
@@ -115,6 +122,8 @@ class ServicesView(Widget):
             table.add_row(u.name, u.sub, u.description)
 
     def _refresh_blame(self) -> None:
+        # Boot blame is host-level (per-boot unit timing) and intentionally
+        # NOT filtered by inspect_target — failed-units is, blame is not.
         self._blame = blame()
         summary = self.query_one("#blame-summary", Static)
         table = self.query_one("#blame-table", DataTable)

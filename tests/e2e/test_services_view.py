@@ -8,6 +8,7 @@ import pytest
 from textual.widgets import DataTable, Static
 
 from fleetfix.app import FleetFixApp
+from fleetfix.config import InspectTarget
 from fleetfix.modules.services.boot import BlameEntry
 from fleetfix.modules.services.failed import FailedUnit
 
@@ -21,7 +22,7 @@ def _audit_in_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 def _stub_services(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "fleetfix.screens.services.list_failed_units",
-        lambda: [
+        lambda **_kwargs: [
             FailedUnit(
                 name="kafka.service",
                 load="loaded",
@@ -123,7 +124,7 @@ async def test_services_view_refresh_button_repopulates(
 ) -> None:
     calls = {"failed": 0, "blame": 0}
 
-    def fake_failed() -> list[FailedUnit]:
+    def fake_failed(**_kwargs: object) -> list[FailedUnit]:
         calls["failed"] += 1
         return []
 
@@ -145,3 +146,47 @@ async def test_services_view_refresh_button_repopulates(
         await pilot.pause()
         assert calls["failed"] > baseline_failed
         assert calls["blame"] > baseline_blame
+
+
+@pytest.mark.asyncio
+async def test_services_view_passes_inspect_target_user(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_failed(**kwargs: object) -> list[FailedUnit]:
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr("fleetfix.screens.services.list_failed_units", fake_failed)
+    monkeypatch.setattr("fleetfix.screens.services.blame", lambda: [])
+
+    app = FleetFixApp()
+    app.inspect_target = InspectTarget(user="appuser", home=tmp_path, uid=4242)
+    async with app.run_test(size=(200, 60)) as pilot:
+        await pilot.pause()
+        app.action_switch("services")
+        await pilot.pause()
+        assert captured.get("target_user") == "appuser"
+
+
+@pytest.mark.asyncio
+async def test_services_view_passes_none_when_no_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_failed(**kwargs: object) -> list[FailedUnit]:
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr("fleetfix.screens.services.list_failed_units", fake_failed)
+    monkeypatch.setattr("fleetfix.screens.services.blame", lambda: [])
+
+    app = FleetFixApp()
+    async with app.run_test(size=(200, 60)) as pilot:
+        await pilot.pause()
+        app.action_switch("services")
+        await pilot.pause()
+        assert captured.get("target_user") is None

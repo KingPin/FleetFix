@@ -13,7 +13,15 @@ from textual.widgets import ContentSwitcher, Footer
 from fleetfix import __version__
 from fleetfix.audit.logger import AuditLogger, Operator
 from fleetfix.audit.otel import load_otel_config, make_sink
-from fleetfix.config import HostInfo, detect_host, resolve_audit_path
+from fleetfix.config import (
+    PATHS_CONFIG_PATH,
+    HostInfo,
+    InspectTarget,
+    detect_host,
+    read_paths_yaml,
+    resolve_audit_path,
+    resolve_inspect_target,
+)
 from fleetfix.privilege import PrivilegeState
 from fleetfix.privilege import detect as detect_privilege
 from fleetfix.screens.audit_log import AuditLogView
@@ -58,7 +66,13 @@ class FleetFixApp(App[None]):
         Binding("u", "show_update", "Update"),
     ]
 
-    def __init__(self, *, read_only: bool = False, check_for_update_on_mount: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        read_only: bool = False,
+        check_for_update_on_mount: bool = True,
+        target_user: str | None = None,
+    ) -> None:
         super().__init__()
         self.ctx = AppContext(version=__version__, read_only=read_only)
         self._check_for_update_on_mount = check_for_update_on_mount
@@ -66,15 +80,25 @@ class FleetFixApp(App[None]):
         self.privilege: PrivilegeState = detect_privilege()
         self.audit_path = resolve_audit_path()
         self._otel_sink = make_sink(load_otel_config())
+        self.inspect_target: InspectTarget | None = resolve_inspect_target(
+            cli_user=target_user,
+            paths_cfg=read_paths_yaml(PATHS_CONFIG_PATH),
+        )
         self.audit = AuditLogger(
             self.audit_path,
             operator=Operator.from_environment(),
             sink=self._otel_sink.emit if self._otel_sink is not None else None,
+            inspect_target=self.inspect_target.user if self.inspect_target else None,
         )
         self.update_release: ReleaseInfo | None = None
 
     def compose(self) -> ComposeResult:
-        yield TopBar(host=self.host, privilege=self.privilege, read_only=self.ctx.read_only)
+        yield TopBar(
+            host=self.host,
+            privilege=self.privilege,
+            read_only=self.ctx.read_only,
+            inspect_target_user=self.inspect_target.user if self.inspect_target else None,
+        )
         with Horizontal(id="main"):
             yield Nav(can_tier2=self.privilege.can_tier2)
             with ContentSwitcher(initial="view-dashboard", id="content"):

@@ -128,6 +128,9 @@ def _flatten_attributes(record: dict[str, Any]) -> dict[str, Any]:
         out["fleetfix.operator.auth_principal"] = operator["auth_principal"]
     if operator.get("source_ip") is not None:
         out["fleetfix.operator.source_ip"] = operator["source_ip"]
+    inspect_target = record.get("inspect_target")
+    if inspect_target is not None:
+        out["fleetfix.inspect_target"] = inspect_target
     result = record.get("result")
     if isinstance(result, dict):
         if "ok" in result:
