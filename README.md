@@ -36,13 +36,23 @@ pytest
 python -m fleetfix --version
 ```
 
+## Inspecting another user's footprint
+
+By default FleetFix scans the invoking user's home and lists failed units owned by anyone. Pass `--target-user <name>` to point the storage screen at that user's home and filter the services screen to units whose `User=` matches:
+
+```sh
+fleetfix --target-user appuser
+```
+
+The resolved target is stamped on every audit record (top-level `inspect_target` field) and promoted to the `fleetfix.inspect_target` OTEL attribute, so the trail keeps operator and target unambiguous. A "Inspecting: \<user\>" chip in the top bar surfaces the active target. The flag also accepts an empty string (`--target-user ""`) to force-clear a `target_user` set in `paths.yml`.
+
 ## Configuration
 
 Per-host overrides live under `~/.config/fleetfix/`:
 
 - `probes.yml` — curl/DNS targets for the Network screen
 - `otel.yml` — OTLP endpoint, headers, service name (or use `FLEETFIX_OTLP_ENDPOINT` / `FLEETFIX_OTLP_HEADERS` / `FLEETFIX_OTLP_SERVICE` env vars)
-- `paths.yml` — overrides for stale-file scan roots and age thresholds
+- `paths.yml` — `target_user: <name>` sets the default inspect target (overridden by `--target-user`)
 
 All are optional. Sensible defaults are baked into the binary.
 
