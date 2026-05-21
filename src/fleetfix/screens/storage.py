@@ -21,7 +21,6 @@ from textual.widget import Widget
 from textual.widgets import Button, DataTable, Input, Static
 
 from fleetfix.audit.logger import Operator
-from fleetfix.config import InspectTarget
 from fleetfix.modules.storage.env_check import check_env_file
 from fleetfix.modules.storage.safe_delete import (
     BlacklistedPath,
@@ -116,9 +115,9 @@ class StorageView(Widget):
             yield Static("Enter a path and press Check.", id="env-result")
 
     def _default_root(self) -> Path:
-        target = getattr(self.app, "inspect_target", None)
-        if isinstance(target, InspectTarget):
-            return target.home
+        app: FleetFixApp = self.app  # type: ignore[assignment]
+        if app.inspect_target is not None:
+            return app.inspect_target.home
         return Path.home()
 
     def on_mount(self) -> None:
