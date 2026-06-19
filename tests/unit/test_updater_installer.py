@@ -12,7 +12,9 @@ from fleetfix.audit.logger import AuditLogger, Operator
 from fleetfix.updater.checker import ReleaseInfo
 from fleetfix.updater.installer import (
     apply_update,
+    can_write_directly,
     parse_sha256_line,
+    resolve_install_target,
     sha256_file,
 )
 
@@ -171,6 +173,60 @@ def test_apply_update_swap_failure_propagates(tmp_path: Path, audit: AuditLogger
     )
     assert result.ok is False
     assert result.error == "sudo: password required"
+
+
+def test_resolve_install_target_frozen_uses_running_binary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    running = tmp_path / "bin" / "fleetfix"
+    running.parent.mkdir()
+    running.write_bytes(b"x")
+    monkeypatch.setattr("fleetfix.updater.installer.sys.frozen", True, raising=False)
+    monkeypatch.setattr("fleetfix.updater.installer.sys.executable", str(running))
+    assert resolve_install_target() == running.resolve()
+
+
+def test_resolve_install_target_from_source_falls_back_to_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fleetfix.config import DEFAULT_BINARY_PATH
+
+    monkeypatch.delattr("fleetfix.updater.installer.sys.frozen", raising=False)
+    assert resolve_install_target() == DEFAULT_BINARY_PATH
+
+
+def test_can_write_directly_true_for_user_owned_dir(tmp_path: Path) -> None:
+    # tmp_path is owned/writable by the test user — mirrors ~/bin.
+    assert can_write_directly(tmp_path / "fleetfix") is True
+
+
+def test_can_write_directly_false_for_nonexistent_parent(tmp_path: Path) -> None:
+    assert can_write_directly(tmp_path / "nope" / "fleetfix") is False
+
+
+def test_apply_update_writable_target_skips_sudo(tmp_path: Path, audit: AuditLogger) -> None:
+    """A user-writable target (e.g. ~/bin/fleetfix) installs without sudo."""
+    payload = b"new-binary"
+    digest = hashlib.sha256(payload).hexdigest()
+    target = tmp_path / "bin" / "fleetfix"
+    target.parent.mkdir()
+    target.write_bytes(b"old-binary")
+
+    def fake_download(url: str, dest: Path) -> None:
+        dest.write_bytes(payload)
+
+    # Real swap dispatch (no injected install_swap): must take the in-place path.
+    result = apply_update(
+        _release("https://x/asset", "https://x/sums"),
+        audit=audit,
+        target=target,
+        staging_dir=tmp_path,
+        download=fake_download,
+        fetch_text=lambda url: f"{digest}  {ASSET}\n",
+    )
+    assert result.ok is True, result.error
+    assert target.read_bytes() == payload
+    assert target.stat().st_mode & 0o111  # executable bit set
 
 
 def test_apply_update_missing_digest_for_asset(tmp_path: Path, audit: AuditLogger) -> None:

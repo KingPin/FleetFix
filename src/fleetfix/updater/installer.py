@@ -3,10 +3,12 @@
 Flow:
   1. Stream the new binary to ``/tmp/fleetfix.<ver>.new``.
   2. Fetch the matching ``.sha256`` line and verify the digest.
-  3. ``sudo install -m 0755 <tmp> /usr/local/bin/fleetfix.new``
-  4. ``sudo mv -f /usr/local/bin/fleetfix.new /usr/local/bin/fleetfix``
-     (rename inside the same dir is atomic).
-  5. The user restarts FleetFix manually — we never auto-relaunch mid-triage.
+  3. Swap it over the *running* binary (``resolve_install_target()``):
+       * if its directory is user-writable (e.g. ``~/bin/fleetfix``),
+         copy + atomic ``os.replace`` with NO sudo;
+       * otherwise (e.g. root-owned ``/usr/local/bin``), fall back to
+         ``sudo -n install`` + ``sudo -n mv``.
+  4. The user restarts FleetFix manually — we never auto-relaunch mid-triage.
 
 Every step that touches the filesystem or runs sudo is audit-wrapped.
 """
@@ -15,8 +17,10 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -87,7 +91,55 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def resolve_install_target() -> Path:
+    """Path of the binary to replace.
+
+    When running as a frozen PyInstaller binary, that's the binary the
+    operator actually launched — ``~/bin/fleetfix``, ``/usr/local/bin/fleetfix``,
+    wherever it lives. Running from source (``python -m fleetfix``),
+    ``sys.executable`` is the interpreter, so fall back to the conventional
+    system install path.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve()
+    return DEFAULT_BINARY_PATH
+
+
+def can_write_directly(target: Path) -> bool:
+    """True if the current user can replace ``target`` without sudo.
+
+    Atomic replacement creates a sibling temp file and renames it over the
+    target, so what matters is write access to the *containing directory* —
+    not the (possibly root-owned) target file itself.
+    """
+    parent = target.parent
+    return parent.is_dir() and os.access(parent, os.W_OK)
+
+
+def _swap_in_place(staged: Path, target: Path) -> str | None:
+    """Install without privilege escalation: copy into the target dir, then
+    atomically rename over the target. Returns an error str or None."""
+    staging_path = target.with_name(target.name + ".new")
+    try:
+        shutil.copy2(staged, staging_path)
+        # 0o755: a shipped binary must be world-executable, same as the
+        # `install -m 0755` the sudo path uses.
+        os.chmod(staging_path, 0o755)  # noqa: S103
+        os.replace(staging_path, target)  # atomic within the same directory
+    except OSError as exc:
+        _safe_unlink(staging_path)
+        return f"in-place install failed: {exc}"
+    return None
+
+
 def _run_install_swap(staged: Path, target: Path) -> str | None:
+    """Swap the new binary into place, escalating with sudo only if needed."""
+    if can_write_directly(target):
+        return _swap_in_place(staged, target)
+    return _sudo_install_swap(staged, target)
+
+
+def _sudo_install_swap(staged: Path, target: Path) -> str | None:
     """Run the privileged install + atomic rename. Returns error str or None."""
     staging_path = target.with_name(target.name + ".new")
     install_cmd = ["sudo", "-n", "install", "-m", "0755", str(staged), str(staging_path)]
@@ -114,14 +166,20 @@ def apply_update(
     release: ReleaseInfo,
     *,
     audit: AuditLogger,
-    target: Path = DEFAULT_BINARY_PATH,
+    target: Path | None = None,
     asset_name: str = "fleetfix-linux-x86_64",
     staging_dir: Path | None = None,
     download: Downloader | None = None,
     fetch_text: Callable[[str], str] | None = None,
     install_swap: Callable[[Path, Path], str | None] | None = None,
 ) -> InstallResult:
-    """Download, verify, and swap the local binary. Audit-wrapped."""
+    """Download, verify, and swap the local binary. Audit-wrapped.
+
+    ``target`` defaults to the running binary (``resolve_install_target()``) so
+    an update lands on whatever path FleetFix was launched from, not a
+    hardcoded system path.
+    """
+    target = target if target is not None else resolve_install_target()
     do_download = download or _default_download
     do_fetch_text = fetch_text or _default_fetch_text
     do_swap = install_swap or _run_install_swap
@@ -183,9 +241,13 @@ def _safe_unlink(path: Path) -> None:
         _log.debug("could not remove staged file %s", path, exc_info=True)
 
 
-def have_writable_target(target: Path = DEFAULT_BINARY_PATH) -> bool:
-    """Cheap pre-check: is the install path either writable or wrappable in sudo?"""
-    if target.exists() and target.parent.exists():
+def have_writable_target(target: Path | None = None) -> bool:
+    """Cheap pre-check: can we install to ``target`` at all?
+
+    True if we can write the directory directly, or sudo is available to
+    escalate for a root-owned path. ``target`` defaults to the running binary.
+    """
+    target = target if target is not None else resolve_install_target()
+    if can_write_directly(target):
         return True
-    # Even if the binary doesn't exist yet, /usr/local/bin almost certainly does.
-    return target.parent.exists() and shutil.which("sudo") is not None
+    return target.parent.is_dir() and shutil.which("sudo") is not None
