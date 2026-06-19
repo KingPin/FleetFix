@@ -35,7 +35,11 @@ from fleetfix.screens.processes import ProcessesView
 from fleetfix.screens.services import ServicesView
 from fleetfix.screens.storage import StorageView
 from fleetfix.updater.checker import ReleaseInfo, check_for_update
-from fleetfix.updater.installer import apply_update
+from fleetfix.updater.installer import (
+    apply_update,
+    can_write_directly,
+    resolve_install_target,
+)
 from fleetfix.widgets.nav import NAV_ITEMS, Nav
 from fleetfix.widgets.topbar import TopBar
 
@@ -175,18 +179,31 @@ class FleetFixApp(App[None]):
         switcher.current = target
 
     def action_show_update(self) -> None:
+        if self.ctx.read_only:
+            self.notify(
+                "Updating is disabled in read-only mode. "
+                "Run `fleetfix --update` outside read-only mode to upgrade.",
+                severity="warning",
+            )
+            return
         release = self.update_release
         if release is None:
             self.notify("No update available.", severity="information")
             return
+        target = resolve_install_target()
+        needs_sudo = not can_write_directly(target)
+        sudo_note = (
+            f"Sudo is required to write {target}; "
+            if needs_sudo
+            else f"{target} is user-writable, so no sudo is needed; "
+        )
         request = ConfirmRequest(
             title=f"Update FleetFix to {release.tag}",
             description=(
                 f"Replace {self.ctx.version} → {release.version}.\n\n"
                 f"Source: {release.asset_url}\n"
-                "The binary is sha256-verified before swap. Sudo is required to "
-                "write /usr/local/bin/fleetfix; you must restart FleetFix to use "
-                "the new version."
+                f"The binary is sha256-verified before swap. {sudo_note}"
+                "you must restart FleetFix to use the new version."
             ),
             expected_phrase="UPDATE",
             operator=self.audit.operator,
