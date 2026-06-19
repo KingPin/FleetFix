@@ -42,6 +42,32 @@ LEGACY_LOG_GLOBS: tuple[str, ...] = (
     "*.log.old",
 )
 
+# Directory names we never descend into: package caches, VCS internals, and
+# virtualenvs. They hold high-churn machinery, not the DB dumps / archives
+# this scanner targets, and walking them is what makes a full-home scan crawl
+# (tens of thousands of files under ~/.cache and node_modules alone).
+PRUNE_DIR_NAMES: frozenset[str] = frozenset(
+    {
+        ".git",
+        ".hg",
+        ".svn",
+        "__pycache__",
+        ".venv",
+        "venv",
+        ".tox",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        "node_modules",
+        ".cache",
+        ".npm",
+        ".cargo",
+        ".rustup",
+        ".gradle",
+        ".m2",
+    }
+)
+
 
 @dataclass(frozen=True)
 class StaleCandidate:
@@ -62,12 +88,14 @@ def find_stale(
     artifact_globs: Iterable[str] = STALE_ARTIFACT_GLOBS,
     log_globs: Iterable[str] = LEGACY_LOG_GLOBS,
     follow_symlinks: bool = False,
+    prune_dirs: Iterable[str] = PRUNE_DIR_NAMES,
 ) -> list[StaleCandidate]:
     """Walk `root` and collect files matching the glob lists older than the cutoff.
 
     Returns candidates sorted by size descending — biggest wins are first.
     Permission errors mid-walk are swallowed (we'd rather show partial
-    results than abort the scan).
+    results than abort the scan). Directory names in `prune_dirs` are skipped
+    entirely so the walk doesn't disappear into package caches and virtualenvs.
     """
     if not root.exists():
         return []
@@ -75,11 +103,14 @@ def find_stale(
     cutoff = datetime.now(tz=timezone.utc).timestamp() - older_than_days * 86400
     artifact_set = tuple(artifact_globs)
     log_set = tuple(log_globs)
+    prune_set = frozenset(prune_dirs)
     out: list[StaleCandidate] = []
 
-    for dirpath, _dirnames, filenames in os.walk(
+    for dirpath, dirnames, filenames in os.walk(
         root, followlinks=follow_symlinks, onerror=lambda _e: None
     ):
+        # Prune in place so os.walk never descends into the skipped dirs.
+        dirnames[:] = [d for d in dirnames if d not in prune_set]
         for name in filenames:
             category = _classify(name, artifact_set, log_set)
             if category is None:

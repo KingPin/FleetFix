@@ -96,3 +96,23 @@ def test_default_globs_include_sql_and_rotated_logs() -> None:
     assert "*.sql" in STALE_ARTIFACT_GLOBS
     assert "*.sql.gz" in STALE_ARTIFACT_GLOBS
     assert "*.log.gz" in LEGACY_LOG_GLOBS
+
+
+def test_find_stale_prunes_package_and_cache_dirs(tmp_path: Path) -> None:
+    # Stale-looking artifacts buried in churn dirs we deliberately never
+    # descend into — walking these is what made a full-home scan crawl.
+    _touch(tmp_path / "node_modules" / "old.tar.gz", size=10, age_days=45)
+    _touch(tmp_path / ".cache" / "dump.sql", size=10, age_days=45)
+    _touch(tmp_path / ".venv" / "lib" / "archive.zip", size=10, age_days=45)
+    _touch(tmp_path / ".git" / "objects" / "pack.bak", size=10, age_days=45)
+    # A genuine artifact at top level that must still be found.
+    keep = _touch(tmp_path / "backup.sql", size=10, age_days=45)
+    results = find_stale(tmp_path, older_than_days=30)
+    assert [c.path for c in results] == [keep]
+
+
+def test_find_stale_prune_dirs_is_overridable(tmp_path: Path) -> None:
+    target = _touch(tmp_path / "node_modules" / "old.tar.gz", size=10, age_days=45)
+    # Empty prune set → descend everywhere, including node_modules.
+    results = find_stale(tmp_path, older_than_days=30, prune_dirs=())
+    assert [c.path for c in results] == [target]
