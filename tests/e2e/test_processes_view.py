@@ -49,6 +49,7 @@ async def test_processes_table_populates_on_mount() -> None:
     async with app.run_test(size=(200, 60)) as pilot:
         await pilot.pause()
         app.action_switch("processes")
+        await app.workers.wait_for_complete()
         await pilot.pause()
         table = app.query_one("#procs-table", DataTable)
         assert table.row_count == 2
@@ -60,6 +61,7 @@ async def test_by_cpu_reorders() -> None:
     async with app.run_test(size=(200, 60)) as pilot:
         await pilot.pause()
         app.action_switch("processes")
+        await app.workers.wait_for_complete()
         await pilot.pause()
         await pilot.click("#procs-by-cpu")
         await pilot.pause()
@@ -75,6 +77,7 @@ async def test_term_without_selection_prompts() -> None:
     async with app.run_test(size=(200, 60)) as pilot:
         await pilot.pause()
         app.action_switch("processes")
+        await app.workers.wait_for_complete()
         await pilot.pause()
         # Don't select anything; DataTable focuses row 0 on mount, but we
         # want to test "no selection" -> we'll clear the table by stubbing.
@@ -102,6 +105,7 @@ async def test_term_selected_pushes_confirm_modal(monkeypatch: pytest.MonkeyPatc
     async with app.run_test(size=(200, 60)) as pilot:
         await pilot.pause()
         app.action_switch("processes")
+        await app.workers.wait_for_complete()
         await pilot.pause()
         # Cursor is on row 0 → pid 1234 (postgres) by default (RSS sort).
         await pilot.click("#procs-term")

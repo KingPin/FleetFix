@@ -14,6 +14,7 @@ by the underlying module.
 
 from __future__ import annotations
 
+from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widget import Widget
@@ -102,10 +103,24 @@ class DockerView(Widget):
         self._refresh_containers()
         self._refresh_df()
 
+    # `docker ps` and `docker system df` shell out and can take a beat on a
+    # busy host. Each panel shows a spinner and runs its query in a thread
+    # worker so opening the Docker view never freezes the TUI.
+
     def _refresh_containers(self) -> None:
-        self._containers = list_containers()
+        self.query_one("#docker-table", DataTable).loading = True
+        self._load_containers()
+
+    @work(thread=True, exclusive=True, group="docker-containers")
+    def _load_containers(self) -> None:
+        containers = list_containers()
+        self.app.call_from_thread(self._apply_containers, containers)
+
+    def _apply_containers(self, containers: list[Container]) -> None:
+        self._containers = containers
         summary = self.query_one("#docker-summary", Static)
         table = self.query_one("#docker-table", DataTable)
+        table.loading = False
         table.clear()
         if not self._containers:
             summary.update("no containers found (or docker unavailable)")
@@ -127,9 +142,18 @@ class DockerView(Widget):
             )
 
     def _refresh_df(self) -> None:
+        self.query_one("#docker-df-table", DataTable).loading = True
+        self._load_df()
+
+    @work(thread=True, exclusive=True, group="docker-df")
+    def _load_df(self) -> None:
         rows = system_df()
+        self.app.call_from_thread(self._apply_df, rows)
+
+    def _apply_df(self, rows: list[DfRow]) -> None:
         summary = self.query_one("#docker-df-summary", Static)
         table = self.query_one("#docker-df-table", DataTable)
+        table.loading = False
         table.clear()
         if not rows:
             summary.update("docker system df produced no rows")

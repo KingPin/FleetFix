@@ -55,6 +55,7 @@ async def test_services_view_populates_failed_and_blame() -> None:
     async with app.run_test(size=(200, 60)) as pilot:
         await pilot.pause()
         app.action_switch("services")
+        await app.workers.wait_for_complete()
         await pilot.pause()
         failed = app.query_one("#failed-table", DataTable)
         blame_table = app.query_one("#blame-table", DataTable)
@@ -68,6 +69,7 @@ async def test_services_view_flags_blame_outliers() -> None:
     async with app.run_test(size=(200, 60)) as pilot:
         await pilot.pause()
         app.action_switch("services")
+        await app.workers.wait_for_complete()
         await pilot.pause()
         summary = str(app.query_one("#blame-summary", Static).render())
         assert "3 unit(s)" in summary
@@ -80,6 +82,7 @@ async def test_journal_tail_button_without_selection_prompts() -> None:
     async with app.run_test(size=(200, 60)) as pilot:
         await pilot.pause()
         app.action_switch("services")
+        await app.workers.wait_for_complete()
         await pilot.pause()
         table = app.query_one("#failed-table", DataTable)
         table.clear()
@@ -107,11 +110,13 @@ async def test_journal_tail_button_fetches_for_selected_unit(
     async with app.run_test(size=(200, 60)) as pilot:
         await pilot.pause()
         app.action_switch("services")
+        await app.workers.wait_for_complete()
         await pilot.pause()
         table = app.query_one("#failed-table", DataTable)
         table.cursor_coordinate = (0, 0)
         await pilot.pause()
         await pilot.click("#services-journal")
+        await app.workers.wait_for_complete()
         await pilot.pause()
         assert captured["unit"] == "kafka.service"
         out = str(app.query_one("#journal-output", Static).render())
@@ -139,10 +144,12 @@ async def test_services_view_refresh_button_repopulates(
     async with app.run_test(size=(200, 60)) as pilot:
         await pilot.pause()
         app.action_switch("services")
+        await app.workers.wait_for_complete()
         await pilot.pause()
         baseline_failed = calls["failed"]
         baseline_blame = calls["blame"]
         await pilot.click("#services-refresh")
+        await app.workers.wait_for_complete()
         await pilot.pause()
         assert calls["failed"] > baseline_failed
         assert calls["blame"] > baseline_blame
@@ -167,6 +174,7 @@ async def test_services_view_passes_inspect_target_user(
     async with app.run_test(size=(200, 60)) as pilot:
         await pilot.pause()
         app.action_switch("services")
+        await app.workers.wait_for_complete()
         await pilot.pause()
         assert captured.get("target_user") == "appuser"
 
@@ -188,5 +196,6 @@ async def test_services_view_passes_none_when_no_target(
     async with app.run_test(size=(200, 60)) as pilot:
         await pilot.pause()
         app.action_switch("services")
+        await app.workers.wait_for_complete()
         await pilot.pause()
         assert captured.get("target_user") is None

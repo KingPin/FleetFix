@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import signal
 
+from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widget import Widget
@@ -94,7 +95,21 @@ class ProcessesView(Widget):
             self._signal_selected(signal.SIGKILL, label="FORCE")
 
     def _refresh(self) -> None:
-        self._procs = snapshot(sample_interval_s=0.2)
+        # snapshot() samples CPU over a 0.2s window and walks /proc; running it
+        # inline froze the TUI on each refresh. Spinner + thread worker keeps
+        # the view responsive. The By RSS / By CPU toggle re-renders from the
+        # cached snapshot, so it stays instant and needs no spinner.
+        self.query_one("#procs-table", DataTable).loading = True
+        self._load_procs()
+
+    @work(thread=True, exclusive=True, group="procs-snapshot")
+    def _load_procs(self) -> None:
+        procs = snapshot(sample_interval_s=0.2)
+        self.app.call_from_thread(self._apply_procs, procs)
+
+    def _apply_procs(self, procs: list[ProcInfo]) -> None:
+        self._procs = procs
+        self.query_one("#procs-table", DataTable).loading = False
         self._render_table()
 
     def _render_table(self) -> None:

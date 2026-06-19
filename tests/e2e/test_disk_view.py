@@ -69,6 +69,7 @@ async def test_disk_view_populates_all_three_tables() -> None:
     async with app.run_test(size=(200, 60)) as pilot:
         await pilot.pause()
         app.action_switch("disk")
+        await app.workers.wait_for_complete()
         await pilot.pause()
         smart = app.query_one("#smart-table", DataTable)
         ghost = app.query_one("#ghost-table", DataTable)
@@ -84,6 +85,7 @@ async def test_smart_summary_counts_failures() -> None:
     async with app.run_test(size=(200, 60)) as pilot:
         await pilot.pause()
         app.action_switch("disk")
+        await app.workers.wait_for_complete()
         await pilot.pause()
         summary = str(app.query_one("#smart-summary", Static).render())
         assert "2 device" in summary
@@ -96,6 +98,7 @@ async def test_inode_summary_counts_warnings() -> None:
     async with app.run_test(size=(200, 60)) as pilot:
         await pilot.pause()
         app.action_switch("disk")
+        await app.workers.wait_for_complete()
         await pilot.pause()
         summary = str(app.query_one("#inode-summary", Static).render())
         # /var at 95% counts as above the 85% warn threshold.
@@ -108,6 +111,7 @@ async def test_ghost_summary_shows_reclaimable() -> None:
     async with app.run_test(size=(200, 60)) as pilot:
         await pilot.pause()
         app.action_switch("disk")
+        await app.workers.wait_for_complete()
         await pilot.pause()
         summary = str(app.query_one("#ghost-summary", Static).render())
         # 100M comes out as "95.4 MB" with 1024 base. Just check the unit.

@@ -77,6 +77,10 @@ class MetricCard(Widget):
             classes = f"{classes} {severity}"
         label.set_classes(classes)
 
+    def set_loading(self, loading: bool) -> None:
+        """Overlay a spinner on the value (not the title) while data is fetched."""
+        self.query_one(".metric-value", Static).loading = loading
+
 
 def _load_severity(load_one: float, cpu_count: int) -> str:
     ratio = load_one / max(cpu_count, 1)
@@ -161,6 +165,11 @@ class DashboardView(Widget):
     REFRESH_INTERVAL = 2.0  # seconds — fast tier (pure /proc + /sys reads)
     SLOW_INTERVAL = 15.0  # seconds — slow tier (subprocess-backed cards)
 
+    # Cards fed by the slow (subprocess-backed) worker. They show a spinner on
+    # first load instead of a bare "—"; the periodic refresh reuses the cards
+    # silently, so we only spin while there's genuinely nothing to show yet.
+    _SLOW_CARDS = ("card-storage", "card-inodes", "card-services", "card-updates")
+
     def __init__(self, *, id: str | None = None) -> None:
         super().__init__(id=id)
         self._cpu_count = os.cpu_count() or 1
@@ -184,6 +193,8 @@ class DashboardView(Widget):
 
     def on_mount(self) -> None:
         self.refresh_fast()
+        for card_id in self._SLOW_CARDS:
+            self.query_one(f"#{card_id}", MetricCard).set_loading(True)
         self.refresh_slow()
         self.set_interval(self.REFRESH_INTERVAL, self.refresh_fast)
         self.set_interval(self.SLOW_INTERVAL, self.refresh_slow)
@@ -286,6 +297,8 @@ class DashboardView(Widget):
         update_status: updates.UpdateStatus | None,
     ) -> None:
         """Back on the UI thread: render the slow-tier cards."""
+        for card_id in self._SLOW_CARDS:
+            self.query_one(f"#{card_id}", MetricCard).set_loading(False)
         top_disk = usage.fullest(disk_rows)
         if top_disk is None:
             self._set("card-storage", "unavailable")

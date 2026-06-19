@@ -78,6 +78,7 @@ async def test_docker_view_populates_containers_and_df() -> None:
     async with app.run_test(size=(200, 60)) as pilot:
         await pilot.pause()
         app.action_switch("docker")
+        await app.workers.wait_for_complete()
         await pilot.pause()
         table = app.query_one("#docker-table", DataTable)
         df = app.query_one("#docker-df-table", DataTable)
@@ -91,6 +92,7 @@ async def test_docker_view_flags_restart_loop() -> None:
     async with app.run_test(size=(200, 60)) as pilot:
         await pilot.pause()
         app.action_switch("docker")
+        await app.workers.wait_for_complete()
         await pilot.pause()
         summary = str(app.query_one("#docker-summary", Static).render())
         assert "1 in restart loop" in summary
@@ -116,6 +118,7 @@ async def test_truncate_button_pushes_confirm_modal(monkeypatch: pytest.MonkeyPa
     async with app.run_test(size=(200, 60)) as pilot:
         await pilot.pause()
         app.action_switch("docker")
+        await app.workers.wait_for_complete()
         await pilot.pause()
         await pilot.click("#docker-truncate")
         await pilot.pause()
@@ -143,6 +146,7 @@ async def test_prune_images_button_pushes_confirm_modal(
     async with app.run_test(size=(200, 60)) as pilot:
         await pilot.pause()
         app.action_switch("docker")
+        await app.workers.wait_for_complete()
         await pilot.pause()
         await pilot.click("#docker-prune-images")
         await pilot.pause()
@@ -161,6 +165,7 @@ async def test_truncate_without_selection_prompts() -> None:
     async with app.run_test(size=(200, 60)) as pilot:
         await pilot.pause()
         app.action_switch("docker")
+        await app.workers.wait_for_complete()
         await pilot.pause()
         table = app.query_one("#docker-table", DataTable)
         table.clear()

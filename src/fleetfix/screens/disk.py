@@ -7,14 +7,15 @@ box the table just stays empty rather than erroring loudly.
 
 from __future__ import annotations
 
+from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widget import Widget
 from textual.widgets import Button, DataTable, Static
 
-from fleetfix.modules.disk.ghost import list_ghost_files, total_bytes
-from fleetfix.modules.disk.inodes import run_df_inodes
-from fleetfix.modules.disk.smart import report_all
+from fleetfix.modules.disk.ghost import GhostFile, list_ghost_files, total_bytes
+from fleetfix.modules.disk.inodes import InodeUsage, run_df_inodes
+from fleetfix.modules.disk.smart import SmartReport, report_all
 
 
 class DiskView(Widget):
@@ -86,10 +87,25 @@ class DiskView(Widget):
         self._refresh_ghost()
         self._refresh_inodes()
 
+    # Each panel runs its own sudo-backed command (smartctl / lsof / df -i),
+    # which would freeze the TUI if run inline on the event loop. We show a
+    # spinner on the panel's table, hand the blocking call to a thread worker,
+    # then render the result back on the UI thread. Each panel is independent
+    # so a slow smartctl never holds up the instant df -i result.
+
     def _refresh_smart(self) -> None:
+        self.query_one("#smart-table", DataTable).loading = True
+        self._load_smart()
+
+    @work(thread=True, exclusive=True, group="disk-smart")
+    def _load_smart(self) -> None:
         reports = report_all()
+        self.app.call_from_thread(self._apply_smart, reports)
+
+    def _apply_smart(self, reports: list[SmartReport]) -> None:
         summary = self.query_one("#smart-summary", Static)
         table = self.query_one("#smart-table", DataTable)
+        table.loading = False
         table.clear()
         if not reports:
             summary.update("no block devices found (or smartctl unavailable)")
@@ -120,9 +136,18 @@ class DiskView(Widget):
             table.add_row(r.device, r.kind, r.health or "—", ", ".join(notable_bits) or "—")
 
     def _refresh_ghost(self) -> None:
+        self.query_one("#ghost-table", DataTable).loading = True
+        self._load_ghost()
+
+    @work(thread=True, exclusive=True, group="disk-ghost")
+    def _load_ghost(self) -> None:
         files = list_ghost_files()
+        self.app.call_from_thread(self._apply_ghost, files)
+
+    def _apply_ghost(self, files: list[GhostFile]) -> None:
         summary = self.query_one("#ghost-summary", Static)
         table = self.query_one("#ghost-table", DataTable)
+        table.loading = False
         table.clear()
         if not files:
             summary.update("no deleted-but-held files (or lsof unavailable)")
@@ -140,9 +165,18 @@ class DiskView(Widget):
             )
 
     def _refresh_inodes(self) -> None:
+        self.query_one("#inode-table", DataTable).loading = True
+        self._load_inodes()
+
+    @work(thread=True, exclusive=True, group="disk-inodes")
+    def _load_inodes(self) -> None:
         rows = run_df_inodes()
+        self.app.call_from_thread(self._apply_inodes, rows)
+
+    def _apply_inodes(self, rows: list[InodeUsage]) -> None:
         summary = self.query_one("#inode-summary", Static)
         table = self.query_one("#inode-table", DataTable)
+        table.loading = False
         table.clear()
         if not rows:
             summary.update("df -i produced no parseable rows")

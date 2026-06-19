@@ -154,6 +154,7 @@ class StorageView(Widget):
         scan_btn.disabled = True
         scan_btn.label = "Scanning…"
         self.query_one("#stale-delete", Button).disabled = True
+        self.query_one("#stale-table", DataTable).loading = True
         self._scan_worker(self._scan_root, days)
 
     @work(thread=True, exclusive=True, group="stale-scan")
@@ -176,12 +177,14 @@ class StorageView(Widget):
         scan_btn = self.query_one("#stale-scan", Button)
         scan_btn.disabled = False
         scan_btn.label = "Scan"
+        self.query_one("#stale-table", DataTable).loading = False
         self.notify(f"Scan failed: {message}", severity="error")
 
     def _apply_scan_results(self, candidates: list[StaleCandidate]) -> None:
         """Populate the table and re-enable controls — back on the UI thread."""
         self._candidates = candidates
         table = self.query_one("#stale-table", DataTable)
+        table.loading = False
         table.clear()
         for c in candidates:
             table.add_row(

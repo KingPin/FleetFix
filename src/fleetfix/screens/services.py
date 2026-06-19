@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widget import Widget
@@ -107,12 +108,26 @@ class ServicesView(Widget):
         self._refresh_failed()
         self._refresh_blame()
 
+    # systemctl and systemd-analyze can stall for a second or two on a loaded
+    # box. We read the inspect target on the UI thread (DOM/state access must
+    # stay there), show a spinner, and run the actual command off-thread.
+
     def _refresh_failed(self) -> None:
         app: FleetFixApp = self.app  # type: ignore[assignment]
         target_user = app.inspect_target.user if app.inspect_target is not None else None
-        self._failed = list_failed_units(target_user=target_user)
+        self.query_one("#failed-table", DataTable).loading = True
+        self._load_failed(target_user)
+
+    @work(thread=True, exclusive=True, group="services-failed")
+    def _load_failed(self, target_user: str | None) -> None:
+        units = list_failed_units(target_user=target_user)
+        self.app.call_from_thread(self._apply_failed, units)
+
+    def _apply_failed(self, units: list[FailedUnit]) -> None:
+        self._failed = units
         summary = self.query_one("#failed-summary", Static)
         table = self.query_one("#failed-table", DataTable)
+        table.loading = False
         table.clear()
         if not self._failed:
             summary.update("no failed units")
@@ -122,11 +137,21 @@ class ServicesView(Widget):
             table.add_row(u.name, u.sub, u.description)
 
     def _refresh_blame(self) -> None:
+        self.query_one("#blame-table", DataTable).loading = True
+        self._load_blame()
+
+    @work(thread=True, exclusive=True, group="services-blame")
+    def _load_blame(self) -> None:
         # Boot blame is host-level (per-boot unit timing) and intentionally
         # NOT filtered by inspect_target — failed-units is, blame is not.
-        self._blame = blame()
+        entries = blame()
+        self.app.call_from_thread(self._apply_blame, entries)
+
+    def _apply_blame(self, entries: list[BlameEntry]) -> None:
+        self._blame = entries
         summary = self.query_one("#blame-summary", Static)
         table = self.query_one("#blame-table", DataTable)
+        table.loading = False
         table.clear()
         if not self._blame:
             summary.update("systemd-analyze blame produced no rows")
@@ -148,7 +173,17 @@ class ServicesView(Widget):
             out.update("(no unit at that row.)")
             return
         unit = self._failed[table.cursor_row].name
+        out.loading = True
+        self._load_journal(unit)
+
+    @work(thread=True, exclusive=True, group="services-journal")
+    def _load_journal(self, unit: str) -> None:
         text = journal_tail(unit)
+        self.app.call_from_thread(self._apply_journal, unit, text)
+
+    def _apply_journal(self, unit: str, text: str) -> None:
+        out = self.query_one("#journal-output", Static)
+        out.loading = False
         out.update(text or f"(no recent journal output for {unit})")
 
 

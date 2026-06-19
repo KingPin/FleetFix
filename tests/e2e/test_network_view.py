@@ -39,6 +39,7 @@ async def test_sockets_table_populates_on_mount() -> None:
     async with app.run_test(size=(160, 60)) as pilot:
         await pilot.pause()
         app.action_switch("network")
+        await app.workers.wait_for_complete()
         await pilot.pause()
         table = app.query_one("#sockets-table", DataTable)
         assert table.row_count == 2
@@ -64,9 +65,11 @@ async def test_curl_probe_renders_timing(monkeypatch: pytest.MonkeyPatch) -> Non
     async with app.run_test(size=(200, 60)) as pilot:
         await pilot.pause()
         app.action_switch("network")
+        await app.workers.wait_for_complete()
         await pilot.pause()
         app.query_one("#probe-target", Input).value = "https://api.internal/health"
         await pilot.click("#probe-curl")
+        await app.workers.wait_for_complete()
         await pilot.pause()
         result = str(app.query_one("#probe-result", Static).render())
         assert "HTTP 200" in result
@@ -83,9 +86,11 @@ async def test_dns_probe_renders_addresses(monkeypatch: pytest.MonkeyPatch) -> N
     async with app.run_test(size=(200, 60)) as pilot:
         await pilot.pause()
         app.action_switch("network")
+        await app.workers.wait_for_complete()
         await pilot.pause()
         app.query_one("#probe-target", Input).value = "svc.internal"
         await pilot.click("#probe-dns")
+        await app.workers.wait_for_complete()
         await pilot.pause()
         result = str(app.query_one("#probe-result", Static).render())
         assert "10.0.0.5" in result
@@ -110,9 +115,11 @@ async def test_ping_probe_renders_summary(monkeypatch: pytest.MonkeyPatch) -> No
     async with app.run_test(size=(200, 60)) as pilot:
         await pilot.pause()
         app.action_switch("network")
+        await app.workers.wait_for_complete()
         await pilot.pause()
         app.query_one("#probe-target", Input).value = "10.0.0.1"
         await pilot.click("#probe-ping")
+        await app.workers.wait_for_complete()
         await pilot.pause()
         result = str(app.query_one("#probe-result", Static).render())
         assert "10/10" in result
@@ -125,6 +132,7 @@ async def test_empty_target_shows_prompt() -> None:
     async with app.run_test(size=(160, 60)) as pilot:
         await pilot.pause()
         app.action_switch("network")
+        await app.workers.wait_for_complete()
         await pilot.pause()
         await pilot.click("#probe-curl")
         await pilot.pause()
