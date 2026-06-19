@@ -24,6 +24,17 @@ def main(argv: list[str] | None = None) -> int:
         help="Disable every destructive action (training / shadow mode).",
     )
     parser.add_argument(
+        "--update",
+        action="store_true",
+        help="Check for and install the latest release, then exit (no TUI).",
+    )
+    parser.add_argument(
+        "--force",
+        "-y",
+        action="store_true",
+        help="With --update: skip the confirmation prompt (for ansible/CI).",
+    )
+    parser.add_argument(
         "--target-user",
         default=None,
         help=(
@@ -33,6 +44,11 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     args = parser.parse_args(argv)
+
+    if args.update:
+        from fleetfix.updater.cli import run_update
+
+        return run_update(force=args.force)
 
     from fleetfix.app import FleetFixApp
 
