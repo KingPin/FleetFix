@@ -59,14 +59,22 @@ async def test_dashboard_slow_tier_cards_populate(monkeypatch: pytest.MonkeyPatc
         lambda **_k: [usage.DiskUsage("/dev/sda1", "/", 100, 91, 9, 91)],
     )
     monkeypatch.setattr(dashboard.inodes, "run_df_inodes", lambda **_k: [])
-    monkeypatch.setattr(dashboard.failed, "list_failed_units", lambda *_a, **_k: [])
+    failed_calls: list[str | None] = []
+
+    def _fake_failed(target_user: str | None = None) -> list:
+        failed_calls.append(target_user)
+        return []
+
+    monkeypatch.setattr(dashboard.failed, "list_failed_units", _fake_failed)
     monkeypatch.setattr(
         dashboard.interfaces,
         "read_network",
         lambda: NetworkInfo("eth0", "10.0.0.5", "10.0.0.1", "up", 1000, 2000),
     )
 
-    app = FleetFixApp()
+    # Disable the launch-time update worker so wait_for_complete() blocks only on
+    # the dashboard's slow-tier worker, not a (potentially networked) release check.
+    app = FleetFixApp(check_for_update_on_mount=False)
     async with app.run_test() as pilot:
         await pilot.pause()
         await app.workers.wait_for_complete()  # let the slow-tier worker finish
@@ -79,6 +87,8 @@ async def test_dashboard_slow_tier_cards_populate(monkeypatch: pytest.MonkeyPatc
         assert "91%" in _value("#card-storage")
         assert "eth0" in _value("#card-network")
         assert _value("#card-services") == "none failed"
+        # The card filters by inspect target like ServicesView (None here).
+        assert failed_calls == [None]
 
 
 @pytest.mark.asyncio

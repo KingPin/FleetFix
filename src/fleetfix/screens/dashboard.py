@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import time
+from typing import TYPE_CHECKING
 
 from textual import work
 from textual.app import ComposeResult
@@ -29,6 +30,9 @@ from fleetfix.modules.disk import inodes, usage
 from fleetfix.modules.network import interfaces
 from fleetfix.modules.services import failed
 from fleetfix.modules.system import metrics, thermal, updates
+
+if TYPE_CHECKING:
+    from fleetfix.app import FleetFixApp
 
 
 class MetricCard(Widget):
@@ -259,9 +263,13 @@ class DashboardView(Widget):
         Each reader already swallows its own errors and returns an empty result
         on failure, so one missing tool never strands the others' cards.
         """
+        # Match ServicesView: failed-units is filtered by the inspect target so
+        # the dashboard and Services screen never disagree in inspect-target mode.
+        app: FleetFixApp = self.app  # type: ignore[assignment]
+        target_user = app.inspect_target.user if app.inspect_target is not None else None
         disk_rows = usage.run_df()
         inode_rows = inodes.run_df_inodes()
-        failed_units = failed.list_failed_units()
+        failed_units = failed.list_failed_units(target_user=target_user)
         try:
             update_status: updates.UpdateStatus | None = updates.get_update_status()
         except Exception:  # updater fallbacks are best-effort; never strand the worker
