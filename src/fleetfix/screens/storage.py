@@ -15,6 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widget import Widget
@@ -27,7 +28,7 @@ from fleetfix.modules.storage.safe_delete import (
     UnsafeDelete,
     safe_delete,
 )
-from fleetfix.modules.storage.stale import find_stale
+from fleetfix.modules.storage.stale import StaleCandidate, find_stale
 from fleetfix.screens.confirm import ConfirmModal, ConfirmRequest
 
 if TYPE_CHECKING:
@@ -90,7 +91,7 @@ class StorageView(Widget):
     def __init__(self, *, id: str | None = None) -> None:
         super().__init__(id=id)
         self._scan_root: Path = Path.home()
-        self._candidates: list = []
+        self._candidates: list[StaleCandidate] = []
 
     def compose(self) -> ComposeResult:
         yield Static("Stale artifacts under your home directory", classes="panel-title")
@@ -128,13 +129,20 @@ class StorageView(Widget):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         bid = event.button.id
         if bid == "stale-scan":
-            self._rescan()
+            self._start_scan()
         elif bid == "stale-delete":
             self._confirm_delete_selected()
         elif bid == "env-check":
             self._run_env_check()
 
-    def _rescan(self) -> None:
+    def _start_scan(self) -> None:
+        """Read scan params on the UI thread, then hand the walk to a worker.
+
+        ``find_stale`` recurses an entire directory tree; running it inline in
+        the button handler blocked Textual's event loop and froze the whole
+        TUI on real homes. We read the inputs here (DOM access must stay on the
+        event loop), disable the controls, and offload the walk to a thread.
+        """
         try:
             days = int(self.query_one("#stale-days", Input).value or "30")
         except ValueError:
@@ -142,17 +150,50 @@ class StorageView(Widget):
         root_str = self.query_one("#stale-root", Input).value or str(self._default_root())
         self._scan_root = Path(root_str).expanduser()
 
-        self._candidates = find_stale(self._scan_root, older_than_days=days)
+        scan_btn = self.query_one("#stale-scan", Button)
+        scan_btn.disabled = True
+        scan_btn.label = "Scanning…"
+        self.query_one("#stale-delete", Button).disabled = True
+        self._scan_worker(self._scan_root, days)
+
+    @work(thread=True, exclusive=True, group="stale-scan")
+    def _scan_worker(self, root: Path, days: int) -> None:
+        """Run the (blocking) filesystem walk off the event loop.
+
+        On an unexpected error we still route back to the UI thread so the
+        Scan button never strands on "Scanning…" — find_stale already
+        swallows per-file OSErrors, so reaching the except is rare.
+        """
+        try:
+            candidates = find_stale(root, older_than_days=days)
+        except OSError as exc:
+            self.app.call_from_thread(self._scan_failed, str(exc))
+            return
+        self.app.call_from_thread(self._apply_scan_results, candidates)
+
+    def _scan_failed(self, message: str) -> None:
+        """Restore the controls and surface the error — back on the UI thread."""
+        scan_btn = self.query_one("#stale-scan", Button)
+        scan_btn.disabled = False
+        scan_btn.label = "Scan"
+        self.notify(f"Scan failed: {message}", severity="error")
+
+    def _apply_scan_results(self, candidates: list[StaleCandidate]) -> None:
+        """Populate the table and re-enable controls — back on the UI thread."""
+        self._candidates = candidates
         table = self.query_one("#stale-table", DataTable)
         table.clear()
-        for c in self._candidates:
+        for c in candidates:
             table.add_row(
                 _human_bytes(c.size_bytes),
                 f"{c.age_days:.0f}",
                 c.category,
                 str(c.path),
             )
-        self.query_one("#stale-delete", Button).disabled = not self._candidates
+        scan_btn = self.query_one("#stale-scan", Button)
+        scan_btn.disabled = False
+        scan_btn.label = "Scan"
+        self.query_one("#stale-delete", Button).disabled = not candidates
 
     def _run_env_check(self) -> None:
         path = Path(self.query_one("#env-input", Input).value or "").expanduser()
@@ -202,6 +243,6 @@ class StorageView(Widget):
                 self.notify(f"Delete refused: {exc}", severity="error")
                 return
             self.notify(f"Deleted {candidate.path}", severity="information")
-            self._rescan()
+            self._start_scan()
 
         app.push_screen(ConfirmModal(request), after_confirm)

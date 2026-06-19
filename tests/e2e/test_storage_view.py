@@ -42,10 +42,15 @@ async def test_storage_scan_populates_table(tmp_path: Path) -> None:
         days_input = app.query_one("#stale-days", Input)
         days_input.value = "30"
         await pilot.click("#stale-scan")
+        # The scan now runs in a thread worker so the TUI stays responsive;
+        # wait for it to finish before asserting on the populated table.
+        await app.workers.wait_for_complete()
         await pilot.pause()
 
         table = app.query_one("#stale-table", DataTable)
         assert table.row_count == 1
+        scan_btn = app.query_one("#stale-scan", Button)
+        assert scan_btn.disabled is False
         delete_btn = app.query_one("#stale-delete", Button)
         assert delete_btn.disabled is False
 
