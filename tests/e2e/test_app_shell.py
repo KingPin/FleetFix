@@ -47,6 +47,41 @@ async def test_dashboard_renders_metric_values() -> None:
 
 
 @pytest.mark.asyncio
+async def test_dashboard_slow_tier_cards_populate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The thread-worker slow tier must render storage/network/services end-to-end."""
+    from fleetfix.modules.disk import usage
+    from fleetfix.modules.network.interfaces import NetworkInfo
+    from fleetfix.screens import dashboard
+
+    monkeypatch.setattr(
+        dashboard.usage,
+        "run_df",
+        lambda **_k: [usage.DiskUsage("/dev/sda1", "/", 100, 91, 9, 91)],
+    )
+    monkeypatch.setattr(dashboard.inodes, "run_df_inodes", lambda **_k: [])
+    monkeypatch.setattr(dashboard.failed, "list_failed_units", lambda *_a, **_k: [])
+    monkeypatch.setattr(
+        dashboard.interfaces,
+        "read_network",
+        lambda: NetworkInfo("eth0", "10.0.0.5", "10.0.0.1", "up", 1000, 2000),
+    )
+
+    app = FleetFixApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.workers.wait_for_complete()  # let the slow-tier worker finish
+        await pilot.pause()
+
+        def _value(card_id: str) -> str:
+            card = app.query_one(card_id, MetricCard)
+            return str(card.query(".metric-value").first().render())
+
+        assert "91%" in _value("#card-storage")
+        assert "eth0" in _value("#card-network")
+        assert _value("#card-services") == "none failed"
+
+
+@pytest.mark.asyncio
 async def test_switching_views_works(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("fleetfix.screens.services.list_failed_units", lambda **_kwargs: [])
     monkeypatch.setattr("fleetfix.screens.services.blame", lambda: [])
