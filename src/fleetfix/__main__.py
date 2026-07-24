@@ -3,9 +3,34 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 from fleetfix import __version__
+
+
+def _configure_animations(*, low_spec: bool) -> None:
+    """Disable Textual animations on low-spec hosts, before Textual is imported.
+
+    Textual reads ``TEXTUAL_ANIMATIONS`` once at import time, so this must run
+    before ``fleetfix.app`` (which imports Textual) is loaded. Precedence:
+    an explicit operator ``TEXTUAL_ANIMATIONS`` env var always wins; then the
+    ``--low-spec`` flag; then ``perf.yml`` / the single-core auto-detect.
+    """
+    if "TEXTUAL_ANIMATIONS" in os.environ:
+        return
+    from fleetfix.config import (
+        PERF_CONFIG_PATH,
+        read_perf_yaml,
+        resolve_reduce_animations,
+    )
+
+    reduce = low_spec or resolve_reduce_animations(
+        perf_cfg=read_perf_yaml(PERF_CONFIG_PATH),
+        cpu_count=os.cpu_count() or 1,
+    )
+    if reduce:
+        os.environ["TEXTUAL_ANIMATIONS"] = "none"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -35,6 +60,15 @@ def main(argv: list[str] | None = None) -> int:
         help="With --update: skip the confirmation prompt (for ansible/CI).",
     )
     parser.add_argument(
+        "--low-spec",
+        action="store_true",
+        help=(
+            "Disable UI animations for anemic/single-core hosts. Auto-enabled "
+            "on single-core CPUs; also settable via ~/.config/fleetfix/perf.yml "
+            "(reduce_animations) or the TEXTUAL_ANIMATIONS env var."
+        ),
+    )
+    parser.add_argument(
         "--target-user",
         default=None,
         help=(
@@ -49,6 +83,8 @@ def main(argv: list[str] | None = None) -> int:
         from fleetfix.updater.cli import run_update
 
         return run_update(force=args.force)
+
+    _configure_animations(low_spec=args.low_spec)
 
     from fleetfix.app import FleetFixApp
 
