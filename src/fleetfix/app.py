@@ -10,7 +10,7 @@ from textual.binding import Binding, BindingType
 from textual.containers import Horizontal
 from textual.widgets import ContentSwitcher, Footer
 
-from fleetfix import __version__
+from fleetfix import __version__, _debugtime
 from fleetfix.audit.logger import AuditLogger, Operator
 from fleetfix.audit.otel import load_otel_config, make_sink
 from fleetfix.config import (
@@ -43,6 +43,8 @@ from fleetfix.updater.installer import (
 )
 from fleetfix.widgets.nav import NAV_ITEMS, Nav
 from fleetfix.widgets.topbar import TopBar
+
+_debugtime.install()  # no-op unless FLEETFIX_TIMING=1; patches Worker.state to log spans
 
 
 @dataclass(frozen=True)
@@ -140,6 +142,7 @@ class FleetFixApp(App[None]):
         yield Footer()
 
     def on_mount(self) -> None:
+        _debugtime.stamp("app.on_mount")
         self.audit.event(
             "fleetfix.launch",
             host=self.host.hostname,
@@ -175,6 +178,7 @@ class FleetFixApp(App[None]):
         self.action_switch(message.key)
 
     def action_switch(self, key: str) -> None:
+        _debugtime.stamp("switch.request", key=key)
         switcher = self.query_one("#content", ContentSwitcher)
         target = f"view-{key}"
         switcher.current = target
@@ -184,6 +188,9 @@ class FleetFixApp(App[None]):
         view = switcher.get_child_by_id(target)
         if isinstance(view, LazyScanView):
             view.ensure_initial_scan()
+        # Fires after the next repaint, so the gap from switch.request measures
+        # the event-loop layout/paint cost of showing this view.
+        self.call_after_refresh(_debugtime.stamp, "switch.painted", key=key)
 
     def action_show_update(self) -> None:
         if self.ctx.read_only:
