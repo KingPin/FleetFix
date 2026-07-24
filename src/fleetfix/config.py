@@ -23,6 +23,7 @@ USER_STATE_DIR = (
 )
 
 PATHS_CONFIG_PATH = USER_CONFIG_DIR / "paths.yml"
+PERF_CONFIG_PATH = USER_CONFIG_DIR / "perf.yml"
 
 
 def resolve_audit_path() -> Path:
@@ -104,7 +105,8 @@ class InspectTarget:
     uid: int
 
 
-def read_paths_yaml(path: Path) -> dict[str, Any]:
+def _read_yaml_mapping(path: Path) -> dict[str, Any]:
+    """Load a YAML file into a dict, tolerating a missing or malformed file."""
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
@@ -115,6 +117,28 @@ def read_paths_yaml(path: Path) -> dict[str, Any]:
         _log.warning("failed to parse %s: %s", path, exc)
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def read_paths_yaml(path: Path) -> dict[str, Any]:
+    return _read_yaml_mapping(path)
+
+
+def read_perf_yaml(path: Path) -> dict[str, Any]:
+    return _read_yaml_mapping(path)
+
+
+def resolve_reduce_animations(*, perf_cfg: dict[str, Any], cpu_count: int) -> bool:
+    """Decide whether to disable Textual animations on this host.
+
+    ``perf.yml`` may set ``reduce_animations`` to an explicit bool, which wins.
+    Anything else (the default "auto", unset, or a junk value) falls back to a
+    single-core heuristic — the class of anemic host issue #2 was reported on,
+    where animation frames are a real, avoidable event-loop cost.
+    """
+    setting = perf_cfg.get("reduce_animations", "auto")
+    if isinstance(setting, bool):
+        return setting
+    return cpu_count <= 1
 
 
 def resolve_inspect_target(
