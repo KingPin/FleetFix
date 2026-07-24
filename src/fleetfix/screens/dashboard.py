@@ -20,9 +20,10 @@ import os
 import time
 from typing import TYPE_CHECKING
 
-from textual import work
+from textual import events, work
 from textual.app import ComposeResult
 from textual.containers import Grid, VerticalScroll
+from textual.timer import Timer
 from textual.widget import Widget
 from textual.widgets import Static
 
@@ -30,6 +31,7 @@ from fleetfix.modules.disk import inodes, usage
 from fleetfix.modules.network import interfaces
 from fleetfix.modules.services import failed
 from fleetfix.modules.system import metrics, thermal, updates
+from fleetfix.screens.base import LazyScanView
 
 if TYPE_CHECKING:
     from fleetfix.app import FleetFixApp
@@ -149,7 +151,7 @@ def _human_rate(bytes_per_sec: float) -> str:
     return f"{value:.1f}T/s"
 
 
-class DashboardView(Widget):
+class DashboardView(LazyScanView):
     DEFAULT_CSS = """
     DashboardView {
         height: 1fr;
@@ -176,6 +178,10 @@ class DashboardView(Widget):
         # Previous network counters + timestamp, for throughput deltas.
         self._prev_net: tuple[int, int] | None = None
         self._prev_net_t: float | None = None
+        # Periodic refresh timers, created on first show and paused while hidden
+        # so a backgrounded dashboard never re-fires its subprocess worker.
+        self._fast_timer: Timer | None = None
+        self._slow_timer: Timer | None = None
 
     def compose(self) -> ComposeResult:
         # VerticalScroll keeps the 3x3 grid usable on short terminals where the
@@ -191,13 +197,34 @@ class DashboardView(Widget):
             yield MetricCard("Failed services", id="card-services")
             yield MetricCard("Pending updates", id="card-updates")
 
-    def on_mount(self) -> None:
+    def start_initial_scan(self) -> None:
         self.refresh_fast()
         for card_id in self._SLOW_CARDS:
             self.query_one(f"#{card_id}", MetricCard).set_loading(True)
         self.refresh_slow()
-        self.set_interval(self.REFRESH_INTERVAL, self.refresh_fast)
-        self.set_interval(self.SLOW_INTERVAL, self.refresh_slow)
+        self._fast_timer = self.set_interval(self.REFRESH_INTERVAL, self.refresh_fast)
+        self._slow_timer = self.set_interval(self.SLOW_INTERVAL, self.refresh_slow)
+
+    def on_show(self, event: events.Show) -> None:
+        already_loaded = self._initial_scan_done
+        super().on_show(event)  # first show runs start_initial_scan (timers live)
+        if already_loaded:
+            # Returning to a dashboard that was paused while hidden: resume the
+            # periodic refreshes and repaint now so stale cards update at once.
+            if self._fast_timer is not None:
+                self._fast_timer.resume()
+            if self._slow_timer is not None:
+                self._slow_timer.resume()
+            self.refresh_fast()
+            self.refresh_slow()
+
+    def on_hide(self, event: events.Hide) -> None:
+        # A hidden dashboard must not keep firing its subprocess-backed worker
+        # (issue #2 secondary finding). Pause both tiers until it is shown again.
+        if self._fast_timer is not None:
+            self._fast_timer.pause()
+        if self._slow_timer is not None:
+            self._slow_timer.pause()
 
     # --- Fast tier: pure file reads, safe inline on the UI thread ----------
 

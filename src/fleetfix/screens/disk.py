@@ -10,15 +10,15 @@ from __future__ import annotations
 from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widget import Widget
 from textual.widgets import Button, DataTable, Static
 
 from fleetfix.modules.disk.ghost import GhostFile, list_ghost_files, total_bytes
 from fleetfix.modules.disk.inodes import InodeUsage, run_df_inodes
 from fleetfix.modules.disk.smart import SmartReport, report_all
+from fleetfix.screens.base import LazyScanView
 
 
-class DiskView(Widget):
+class DiskView(LazyScanView):
     DEFAULT_CSS = """
     DiskView {
         layout: vertical;
@@ -75,7 +75,7 @@ class DiskView(Widget):
             inode_table.add_columns("Mount", "Filesystem", "Used %", "Used / Total")
             yield inode_table
 
-    def on_mount(self) -> None:
+    def start_initial_scan(self) -> None:
         self._refresh_all()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
