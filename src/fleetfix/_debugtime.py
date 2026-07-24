@@ -1,7 +1,8 @@
-"""Throwaway timing instrumentation for the slow-module-switch complaint.
+"""Env-gated timing instrumentation for the slow-module-switch investigation.
 
-REMOVE BEFORE RELEASE. Entirely gated behind the ``FLEETFIX_TIMING`` env
-var, so a normal run pays nothing (every hook returns immediately).
+Kept in-tree as an opt-in diagnostic (issue #2). Entirely gated behind the
+``FLEETFIX_TIMING`` env var, so a normal run pays nothing (every hook returns
+immediately); enable it only when reproducing a module-switch latency report.
 
 Usage on an affected (anemic-CPU) host:
 
