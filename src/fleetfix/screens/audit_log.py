@@ -10,17 +10,19 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from textual import events
 from textual.app import ComposeResult
-from textual.widget import Widget
+from textual.timer import Timer
 from textual.widgets import DataTable, Static
 
 from fleetfix.audit.logger import read_recent
+from fleetfix.screens.base import LazyScanView
 
 _REFRESH_INTERVAL_S = 2.0
 _TAIL_LIMIT = 200
 
 
-class AuditLogView(Widget):
+class AuditLogView(LazyScanView):
     """DataTable-backed tail of the local audit log."""
 
     DEFAULT_CSS = """
@@ -41,6 +43,8 @@ class AuditLogView(Widget):
         super().__init__(id=id)
         self._path = path
         self._last_seq: int = -1
+        # Tail timer, created on first show and paused while the view is hidden.
+        self._timer: Timer | None = None
 
     def compose(self) -> ComposeResult:
         yield Static(
@@ -51,9 +55,20 @@ class AuditLogView(Widget):
         table.add_columns("Time", "Phase", "Action", "Operator", "Result")
         yield table
 
-    def on_mount(self) -> None:
+    def start_initial_scan(self) -> None:
         self._refresh()
-        self.set_interval(_REFRESH_INTERVAL_S, self._refresh)
+        self._timer = self.set_interval(_REFRESH_INTERVAL_S, self._refresh)
+
+    def on_show(self, event: events.Show) -> None:
+        already_loaded = self._initial_scan_done
+        super().on_show(event)  # first show runs start_initial_scan
+        if already_loaded and self._timer is not None:
+            self._timer.resume()
+            self._refresh()
+
+    def on_hide(self, event: events.Hide) -> None:
+        if self._timer is not None:
+            self._timer.pause()
 
     def _refresh(self) -> None:
         records = read_recent(self._path, limit=_TAIL_LIMIT)

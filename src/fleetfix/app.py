@@ -25,6 +25,7 @@ from fleetfix.config import (
 from fleetfix.privilege import PrivilegeState
 from fleetfix.privilege import detect as detect_privilege
 from fleetfix.screens.audit_log import AuditLogView
+from fleetfix.screens.base import LazyScanView
 from fleetfix.screens.confirm import ConfirmModal, ConfirmRequest
 from fleetfix.screens.dashboard import DashboardView
 from fleetfix.screens.disk import DiskView
@@ -177,6 +178,12 @@ class FleetFixApp(App[None]):
         switcher = self.query_one("#content", ContentSwitcher)
         target = f"view-{key}"
         switcher.current = target
+        # Trigger the target's lazy scan up front so switching in loads it
+        # deterministically (the Show event would otherwise fire a frame later).
+        # Idempotent: a no-op if it (or the Show handler) already scanned.
+        view = switcher.get_child_by_id(target)
+        if isinstance(view, LazyScanView):
+            view.ensure_initial_scan()
 
     def action_show_update(self) -> None:
         if self.ctx.read_only:

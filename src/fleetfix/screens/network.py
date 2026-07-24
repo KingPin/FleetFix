@@ -13,16 +13,16 @@ from collections.abc import Callable
 from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widget import Widget
 from textual.widgets import Button, DataTable, Input, Static
 
 from fleetfix.modules.network.curl_probe import probe as run_curl
 from fleetfix.modules.network.dns import resolve_one
 from fleetfix.modules.network.ping import run_ping
 from fleetfix.modules.network.sockets import ListeningSocket, list_listening_sockets
+from fleetfix.screens.base import LazyScanView
 
 
-class NetworkView(Widget):
+class NetworkView(LazyScanView):
     DEFAULT_CSS = """
     NetworkView {
         layout: vertical;
@@ -75,7 +75,7 @@ class NetworkView(Widget):
             sockets_table.add_columns("Port", "Address", "Process", "PID")
             yield sockets_table
 
-    def on_mount(self) -> None:
+    def start_initial_scan(self) -> None:
         self._refresh_sockets()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:

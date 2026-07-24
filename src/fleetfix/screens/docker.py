@@ -17,17 +17,17 @@ from __future__ import annotations
 from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widget import Widget
 from textual.widgets import Button, DataTable, Static
 
 from fleetfix.audit.logger import AuditLogger, Operator
 from fleetfix.modules.docker.dashboard import Container, list_containers
 from fleetfix.modules.docker.hygiene import DfRow, prune_images, prune_volumes, system_df
 from fleetfix.modules.docker.truncate import truncate_log
+from fleetfix.screens.base import LazyScanView
 from fleetfix.screens.confirm import ConfirmModal, ConfirmRequest
 
 
-class DockerView(Widget):
+class DockerView(LazyScanView):
     DEFAULT_CSS = """
     DockerView {
         layout: vertical;
@@ -85,7 +85,7 @@ class DockerView(Widget):
             df_table.add_columns("Type", "Active / Total", "Size", "Reclaimable")
             yield df_table
 
-    def on_mount(self) -> None:
+    def start_initial_scan(self) -> None:
         self._refresh_all()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:

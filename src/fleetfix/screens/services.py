@@ -15,18 +15,18 @@ from typing import TYPE_CHECKING
 from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widget import Widget
 from textual.widgets import Button, DataTable, Static
 
 from fleetfix.modules.services.boot import BlameEntry, blame
 from fleetfix.modules.services.failed import FailedUnit, list_failed_units
 from fleetfix.modules.services.journal import journal_tail
+from fleetfix.screens.base import LazyScanView
 
 if TYPE_CHECKING:
     from fleetfix.app import FleetFixApp
 
 
-class ServicesView(Widget):
+class ServicesView(LazyScanView):
     DEFAULT_CSS = """
     ServicesView {
         layout: vertical;
@@ -95,7 +95,7 @@ class ServicesView(Widget):
             blame_table.add_columns("Unit", "Duration", "Outlier")
             yield blame_table
 
-    def on_mount(self) -> None:
+    def start_initial_scan(self) -> None:
         self._refresh_all()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:

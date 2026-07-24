@@ -17,18 +17,18 @@ import signal
 from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widget import Widget
 from textual.widgets import Button, DataTable, Static
 
 from fleetfix.audit.logger import AuditLogger, Operator
 from fleetfix.modules.procs.killer import send_signal
 from fleetfix.modules.procs.ranker import ProcInfo, snapshot, top_by_cpu, top_by_rss
+from fleetfix.screens.base import LazyScanView
 from fleetfix.screens.confirm import ConfirmModal, ConfirmRequest
 
 _TOP_N = 25
 
 
-class ProcessesView(Widget):
+class ProcessesView(LazyScanView):
     DEFAULT_CSS = """
     ProcessesView {
         layout: vertical;
@@ -76,7 +76,7 @@ class ProcessesView(Widget):
             table.add_columns("PID", "User", "Comm", "RSS (MB)", "CPU%", "Command line")
             yield table
 
-    def on_mount(self) -> None:
+    def start_initial_scan(self) -> None:
         self._refresh()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
