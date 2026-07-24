@@ -37,6 +37,9 @@ class LazyScanView(Widget):
         """Trigger the first scan exactly once; a no-op on every later call."""
         if self._initial_scan_done:
             return
+        # Mark done *before* scanning so a Show posted mid-scan can't re-enter
+        # and fire a second load. Trade-off: a scan that raises synchronously
+        # won't retry — the view's manual Refresh control recovers it.
         self._initial_scan_done = True
         self.start_initial_scan()
 
