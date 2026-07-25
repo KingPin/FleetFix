@@ -16,6 +16,8 @@ from fleetfix.modules.network.interfaces import NetworkInfo
 from fleetfix.modules.network.ping import PingSummary
 from fleetfix.modules.network.resolver import ResolverConfig
 from fleetfix.modules.network.sockets import ListeningSocket
+from fleetfix.modules.network.tcp import TcpCheck, TcpTarget
+from fleetfix.modules.network.traceroute import TraceHop, TraceResult
 
 
 @pytest.fixture(autouse=True)
@@ -294,6 +296,159 @@ async def test_refresh_reloads_facts_and_sockets(monkeypatch: pytest.MonkeyPatch
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert calls == {"net": 2, "resolver": 2, "sockets": 2}
+
+
+def _hop(number: int, host: str | None, rtt: float | None) -> TraceHop:
+    if host is None:
+        return TraceHop(number=number, hosts=(), rtts_ms=(), timeouts=3)
+    return TraceHop(number=number, hosts=(host,), rtts_ms=(rtt,) if rtt else (), timeouts=0)
+
+
+async def _run_probe(app: FleetFixApp, pilot: Any, target: str, button: str) -> tuple[str, str]:
+    """Type a target, click a probe button, return (verdict, raw pane) text."""
+    await pilot.pause()
+    app.action_switch("network")
+    await app.workers.wait_for_complete()
+    await pilot.pause()
+    app.query_one("#probe-target", Input).value = target
+    await pilot.click(button)
+    await app.workers.wait_for_complete()
+    await pilot.pause()
+    return (
+        str(app.query_one("#probe-verdict", Static).render()),
+        str(app.query_one("#probe-result", Static).render()),
+    )
+
+
+@pytest.mark.asyncio
+async def test_trace_that_reaches_the_target_passes(monkeypatch: pytest.MonkeyPatch) -> None:
+    result = TraceResult(
+        target="8.8.8.8",
+        tool="traceroute",
+        hops=(_hop(1, "10.0.0.1", 0.5), _hop(2, "203.0.113.9", 8.2), _hop(3, "8.8.8.8", 11.4)),
+        reached=True,
+        max_hops=15,
+        raw="traceroute to 8.8.8.8 (8.8.8.8), 15 hops max\n 1  10.0.0.1  0.500 ms\n",
+    )
+    monkeypatch.setattr("fleetfix.screens.network.select_tool", lambda: "traceroute")
+    monkeypatch.setattr("fleetfix.screens.network.run_trace", lambda *a, **k: result)
+    app = FleetFixApp()
+    async with app.run_test(size=(160, 60)) as pilot:
+        verdict, raw = await _run_probe(app, pilot, "8.8.8.8", "#probe-trace")
+        assert "reached in 3 hops" in verdict
+        assert app.query_one("#probe-verdict", Static).has_class("verdict-ok")
+        assert "203.0.113.9" in raw
+        # The tool's verbatim output is shown, not just our parse of it.
+        assert "15 hops max" in raw
+
+
+@pytest.mark.asyncio
+async def test_trace_going_dark_is_a_warning_not_a_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    # ICMP-rate-limited transit is extremely common and says nothing about whether
+    # the destination is reachable — calling it a failure would cry wolf.
+    result = TraceResult(
+        target="8.8.8.8",
+        tool="tracepath",
+        hops=(_hop(1, "10.0.0.1", 0.5), _hop(2, "203.0.113.9", 8.2), _hop(3, None, None)),
+        reached=False,
+        max_hops=15,
+        raw="1: 10.0.0.1  0.500ms\n3: no reply\n",
+    )
+    monkeypatch.setattr("fleetfix.screens.network.select_tool", lambda: "tracepath")
+    monkeypatch.setattr("fleetfix.screens.network.run_trace", lambda *a, **k: result)
+    app = FleetFixApp()
+    async with app.run_test(size=(160, 60)) as pilot:
+        verdict, raw = await _run_probe(app, pilot, "8.8.8.8", "#probe-trace")
+        assert "goes dark after hop 2" in verdict
+        assert app.query_one("#probe-verdict", Static).has_class("verdict-warn")
+        assert not app.query_one("#probe-verdict", Static).has_class("verdict-bad")
+        # The dark hop is still listed, so the operator can see where it stops.
+        assert "no reply" in raw
+
+
+@pytest.mark.asyncio
+async def test_missing_traceroute_binary_reports_how_to_install(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = TraceResult(
+        target="8.8.8.8",
+        tool="",
+        hops=(),
+        reached=False,
+        max_hops=15,
+        raw="",
+        error="neither traceroute nor tracepath is installed — install one with: "
+        "apt install traceroute (or: apt install iputils-tracepath)",
+    )
+    monkeypatch.setattr("fleetfix.screens.network.select_tool", lambda: "")
+    monkeypatch.setattr("fleetfix.screens.network.run_trace", lambda *a, **k: result)
+    app = FleetFixApp()
+    async with app.run_test(size=(200, 60)) as pilot:
+        verdict, _raw = await _run_probe(app, pilot, "8.8.8.8", "#probe-trace")
+        assert "apt install traceroute" in verdict
+
+
+@pytest.mark.asyncio
+async def test_open_port_passes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "fleetfix.screens.network.check_port",
+        lambda target, **_: TcpCheck(target=target, state="open", latency_ms=12.0),
+    )
+    app = FleetFixApp()
+    async with app.run_test(size=(160, 60)) as pilot:
+        verdict, raw = await _run_probe(app, pilot, "db.internal:5432", "#probe-port")
+        assert "db.internal:5432 — open" in verdict
+        assert app.query_one("#probe-verdict", Static).has_class("verdict-ok")
+        assert "accepted a TCP connection" in raw
+
+
+@pytest.mark.asyncio
+async def test_refused_port_is_a_warning_because_the_path_works(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "fleetfix.screens.network.check_port",
+        lambda target, **_: TcpCheck(target=target, state="refused", latency_ms=0.4),
+    )
+    app = FleetFixApp()
+    async with app.run_test(size=(160, 60)) as pilot:
+        verdict, raw = await _run_probe(app, pilot, "127.0.0.1:1", "#probe-port")
+        assert app.query_one("#probe-verdict", Static).has_class("verdict-warn")
+        assert "refused" in verdict
+        # Attribution is the point: refused means the layers under TCP are fine.
+        assert "nothing is listening" in raw
+
+
+@pytest.mark.asyncio
+async def test_dropped_port_is_a_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "fleetfix.screens.network.check_port",
+        lambda target, **_: TcpCheck(target=target, state="timeout", latency_ms=3000.0),
+    )
+    app = FleetFixApp()
+    async with app.run_test(size=(160, 60)) as pilot:
+        verdict, raw = await _run_probe(app, pilot, "192.0.2.1:5432", "#probe-port")
+        assert app.query_one("#probe-verdict", Static).has_class("verdict-bad")
+        assert "timeout" in verdict
+        assert "firewall dropping packets" in raw
+
+
+@pytest.mark.asyncio
+async def test_port_check_refuses_to_guess_a_port(monkeypatch: pytest.MonkeyPatch) -> None:
+    called: list[TcpTarget] = []
+
+    def spy(target: TcpTarget, **_: Any) -> TcpCheck:
+        called.append(target)
+        return TcpCheck(target=target, state="open", latency_ms=1.0)
+
+    monkeypatch.setattr("fleetfix.screens.network.check_port", spy)
+    app = FleetFixApp()
+    async with app.run_test(size=(160, 60)) as pilot:
+        verdict, raw = await _run_probe(app, pilot, "db.internal", "#probe-port")
+        assert "explicit port" in verdict
+        assert "host:port" in raw
+        # Probing 80 when the operator meant 5432 answers a question nobody asked.
+        assert called == []
 
 
 # Every control on the Checks tab, in the order they compose.

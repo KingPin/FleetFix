@@ -26,8 +26,21 @@ from fleetfix.modules.network.curl_probe import probe as run_curl
 from fleetfix.modules.network.dns import resolve_one
 from fleetfix.modules.network.interfaces import NetworkInfo, read_network
 from fleetfix.modules.network.ping import run_ping
+from fleetfix.modules.network.probes import DEFAULT_PROBES, TcpProbes, TracerouteProbes
 from fleetfix.modules.network.resolver import ResolverConfig, read_resolver
 from fleetfix.modules.network.sockets import ListeningSocket, list_listening_sockets
+from fleetfix.modules.network.tcp import (
+    DNS_ERROR,
+    OPEN,
+    REFUSED,
+    TIMEOUT,
+    UNREACHABLE,
+    TcpTarget,
+    check_port,
+    parse_host_port,
+)
+from fleetfix.modules.network.traceroute import TraceHop, TraceResult, select_tool, timeout_for
+from fleetfix.modules.network.traceroute import trace as run_trace
 from fleetfix.screens.base import LazyScanView
 
 # Verdict tiers. `warn` exists because partial packet loss and a 4xx are
@@ -40,7 +53,24 @@ BAD = "bad"
 # Buttons that consume whatever is typed in #probe-target. Everything else on the
 # screen runs against a configured or discovered target, so the empty-target
 # guard must not fire for them.
-_TARGET_BUTTONS = frozenset({"probe-curl", "probe-dns", "probe-ping"})
+_TARGET_BUTTONS = frozenset({"probe-curl", "probe-dns", "probe-ping", "probe-trace", "probe-port"})
+
+# A port check reports what the *network* did, so "refused" is a warn: the packet
+# reached a host that answered, which means every layer under TCP works and the
+# problem is a service, not a path.
+_PORT_STATUS = {OPEN: OK, REFUSED: WARN}
+
+_MARKERS = {OK: "✓", WARN: "!", BAD: "✗"}
+
+# The whole point of a port check is layer attribution, so each state says which
+# layer it implicates rather than leaving the operator to infer it.
+_PORT_MEANINGS = {
+    OPEN: "The service accepted a TCP connection.",
+    REFUSED: "The host answered and refused — the path works, nothing is listening on that port.",
+    TIMEOUT: "No answer at all — a firewall dropping packets, or the host is down.",
+    UNREACHABLE: "The network said no route — routing or the local link, not the service.",
+    DNS_ERROR: "The name never resolved, so nothing was dialled. Fix DNS first.",
+}
 
 
 class ProbeOutput(NamedTuple):
@@ -135,6 +165,7 @@ class NetworkView(LazyScanView):
         # Generation counter for the output surface. Read and written on the UI
         # thread only, so it needs no locking. See `_apply_probe`.
         self._probe_seq = 0
+        self._probes = DEFAULT_PROBES
 
     def compose(self) -> ComposeResult:
         with TabbedContent(id="net-tabs"):
@@ -201,6 +232,10 @@ class NetworkView(LazyScanView):
             self._run_dns(target)
         elif button_id == "probe-ping":
             self._run_ping(target)
+        elif button_id == "probe-trace":
+            self._run_trace(target)
+        elif button_id == "probe-port":
+            self._run_port(target)
 
     # Probes shell out (curl, ping) or block on DNS; ping in particular runs
     # ~2s. The formatting helpers below are pure (no DOM access) so they are safe
@@ -222,6 +257,42 @@ class NetworkView(LazyScanView):
         host = _host_of(target)
         seq = self._start_probe(f"ping {host} (10 packets, ~2s)")
         self._probe_worker(seq, lambda: _format_ping(host))
+
+    def _run_trace(self, target: str) -> None:
+        host = _host_of(target)
+        cfg = self._probes.traceroute
+        # select_tool is one shutil.which; cheap enough for the UI thread, and
+        # naming the tool in the running line matters because the two have wildly
+        # different wall clocks (~9s vs ~27s at the defaults).
+        tool = select_tool()
+        if tool:
+            budget = timeout_for(
+                tool, max_hops=cfg.max_hops, wait_s=cfg.wait_s, queries=cfg.queries
+            )
+            label = f"{tool} {host} (up to {cfg.max_hops} hops, ~{budget:.0f}s)"
+        else:
+            label = f"trace {host}"
+        seq = self._start_probe(label)
+        self._probe_worker(seq, lambda: _format_trace(host, cfg))
+
+    def _run_port(self, target: str) -> None:
+        parsed = parse_host_port(target)
+        if parsed is None:
+            # Guessing a port would be confidently wrong — probing 80 when the
+            # operator meant 5432 answers a question nobody asked.
+            self._probe_seq += 1
+            self._show_verdict(
+                "! need an explicit port",
+                WARN,
+                _body(
+                    "A port check needs host:port — try db.internal:5432, 10.0.0.5:22,\n"
+                    "[::1]:5432, or a URL like https://api.internal.",
+                ),
+            )
+            return
+        cfg = self._probes.tcp
+        seq = self._start_probe(f"tcp connect to {parsed} (~{cfg.timeout_s:g}s max)")
+        self._probe_worker(seq, lambda: _format_port(parsed, cfg))
 
     def _start_probe(self, label: str) -> int:
         # No `loading = True`: on a height:auto Static that collapses the widget
@@ -334,7 +405,9 @@ def _format_curl(target: str) -> ProbeOutput:
     result = run_curl(target)
     if result.error:
         return ProbeOutput(
-            f"✗ curl {target}: {result.error}", BAD, _body(f"curl {target}", result.raw)
+            f"{_MARKERS[BAD]} curl {target}: {result.error}",
+            BAD,
+            _body(f"curl {target}", result.raw),
         )
     detail = (
         f"HTTP {result.http_code}  total {result.time_total_s * 1000:.1f}ms  "
@@ -392,5 +465,68 @@ def _format_ping(host: str) -> ProbeOutput:
         status = WARN
     else:
         status = OK
-    marker = {OK: "✓", WARN: "!", BAD: "✗"}[status]
-    return ProbeOutput(f"{marker} {detail}", status, _body(detail, summary.raw))
+    return ProbeOutput(f"{_MARKERS[status]} {detail}", status, _body(detail, summary.raw))
+
+
+def _format_trace(host: str, cfg: TracerouteProbes) -> ProbeOutput:
+    result = run_trace(host, max_hops=cfg.max_hops, wait_s=cfg.wait_s, queries=cfg.queries)
+    if not result.hops:
+        # No tool installed, an unknown host, or a wall-clock hit before hop 1.
+        reason = result.error or "no hops came back"
+        return ProbeOutput(f"✗ trace {host}: {reason}", BAD, _body(f"trace {host}", result.raw))
+
+    detail_lines = [f"{result.tool} to {host}, {len(result.hops)} of {result.max_hops} hops"]
+    detail_lines += [_hop_line(hop) for hop in result.hops]
+    if result.error:
+        # A partial trace still carries the diagnostic — say it's partial, keep it.
+        detail_lines.append(result.error)
+    body = _body("\n".join(detail_lines), result.raw)
+
+    verdict, status = _trace_verdict(host, result)
+    return ProbeOutput(verdict, status, body)
+
+
+def _trace_verdict(host: str, result: TraceResult) -> tuple[str, str]:
+    if result.reached:
+        hop = result.hops[-1]
+        rtt = f"{hop.rtts_ms[0]:.1f}ms" if hop.rtts_ms else "no rtt"
+        return f"✓ trace {host} — reached in {hop.number} hops ({rtt})", OK
+    stalled = result.stalled_at
+    if stalled is not None:
+        # Warn, not fail: transit routers that rate-limit or drop ICMP TTL-exceeded
+        # are extremely common, and a dark path past hop 6 says nothing about
+        # whether the destination itself is reachable — that's what ping answers.
+        return (
+            f"! trace {host} — path goes dark after hop {stalled - 1} "
+            f"(no reply from hop {stalled} to {result.max_hops})",
+            WARN,
+        )
+    return f"✗ trace {host} — nothing answered in {result.max_hops} hops", BAD
+
+
+def _hop_line(hop: TraceHop) -> str:
+    parts = [f"{hop.number:>3}"]
+    if hop.responded:
+        parts.append(" ".join(hop.hosts))
+        parts.append(" ".join(f"{rtt:.1f}ms" for rtt in hop.rtts_ms) or "no rtt")
+    if hop.timeouts:
+        parts.append(("* " * hop.timeouts).strip())
+    if hop.flags:
+        parts.append(" ".join(hop.flags))
+    return "  ".join(parts)
+
+
+def _format_port(target: TcpTarget, cfg: TcpProbes) -> ProbeOutput:
+    # No command output to show — check_port is socket.connect_ex, so the "raw"
+    # block is a synthesized report. There is no nc invocation to find.
+    check = check_port(target, timeout_s=cfg.timeout_s)
+    status = _PORT_STATUS.get(check.state, BAD)
+    detail = [f"tcp {target} → {check.state} in {check.latency_ms:.0f}ms"]
+    if check.error:
+        detail.append(check.error)
+    detail.append(_PORT_MEANINGS.get(check.state, "The connect attempt failed."))
+    return ProbeOutput(
+        f"{_MARKERS[status]} tcp {target} — {check.state} ({check.latency_ms:.0f}ms)",
+        status,
+        _body("\n".join(detail)),
+    )
