@@ -13,6 +13,7 @@ from textual.widgets import DataTable, Input, Static, TabbedContent, TabPane
 from fleetfix.app import FleetFixApp
 from fleetfix.modules.network.curl_probe import CurlProbe
 from fleetfix.modules.network.interfaces import NetworkInfo
+from fleetfix.modules.network.ladder import LadderResult, LadderRung
 from fleetfix.modules.network.ping import PingSummary
 from fleetfix.modules.network.probes import DEFAULT_PROBES
 from fleetfix.modules.network.resolver import ResolverConfig
@@ -321,11 +322,19 @@ def _hop(number: int, host: str | None, rtt: float | None) -> TraceHop:
 
 async def _run_probe(app: FleetFixApp, pilot: Any, target: str, button: str) -> tuple[str, str]:
     """Type a target, click a probe button, return (verdict, raw pane) text."""
+    return await _click_check(app, pilot, button, target=target)
+
+
+async def _click_check(
+    app: FleetFixApp, pilot: Any, button: str, *, target: str | None = None
+) -> tuple[str, str]:
+    """Click a check, optionally typing a target first; return (verdict, raw) text."""
     await pilot.pause()
     app.action_switch("network")
     await app.workers.wait_for_complete()
     await pilot.pause()
-    app.query_one("#probe-target", Input).value = target
+    if target is not None:
+        app.query_one("#probe-target", Input).value = target
     await pilot.click(button)
     await app.workers.wait_for_complete()
     await pilot.pause()
@@ -522,15 +531,21 @@ async def test_sockets_table_lives_in_its_own_tab() -> None:
         assert table.query_ancestor(TabPane).id == "tab-sockets"
 
 
+def _write_probes_yml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str) -> None:
+    config = tmp_path / "probes.yml"
+    config.write_text(body, encoding="utf-8")
+    monkeypatch.setattr("fleetfix.modules.network.probes.PROBES_CONFIG_PATH", config)
+
+
 @pytest.mark.asyncio
 async def test_probes_yml_reaches_the_network_view(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    config = tmp_path / "probes.yml"
-    config.write_text(
-        "traceroute:\n  max_hops: 8\nladder:\n  internet_target: 10.9.9.9\n", encoding="utf-8"
+    _write_probes_yml(
+        tmp_path,
+        monkeypatch,
+        "traceroute:\n  max_hops: 8\nladder:\n  internet_target: 10.9.9.9\n",
     )
-    monkeypatch.setattr("fleetfix.modules.network.probes.PROBES_CONFIG_PATH", config)
     app = FleetFixApp()
     async with app.run_test(size=(160, 60)) as pilot:
         await pilot.pause()
@@ -546,3 +561,273 @@ async def test_a_view_built_without_probes_uses_the_defaults() -> None:
     # A host with no probes.yml is fully functional; that is the whole point of
     # shipping defaults rather than requiring the file.
     assert NetworkView()._probes is DEFAULT_PROBES
+
+
+def _rung(name: str, label: str, *, ok: bool = True, detail: str = "fine") -> LadderRung:
+    return LadderRung(name=name, label=label, ok=ok, detail=detail)
+
+
+_HEALTHY_RUNGS = (
+    _rung("link", "link state", detail="eth0 10.0.0.9 via 10.0.0.1 (up)"),
+    _rung("gateway", "default gateway (10.0.0.1)", detail="3/3 back, 0% loss, 1.2ms avg"),
+    _rung("internet", "internet (8.8.8.8)", detail="3/3 back, 0% loss, 11.0ms avg"),
+    _rung("dns", "dns (github.com)", detail="140.82.121.4 in 12ms"),
+    _rung("https", "https (https://github.com)", detail="HTTP 200 in 210ms"),
+)
+
+
+def _fake_ladder(rungs: tuple[LadderRung, ...]) -> Any:
+    """Stand in for run_ladder, firing on_rung exactly as the real one does."""
+
+    def fake(*, on_rung: Any = None, **_kwargs: Any) -> LadderResult:
+        for rung in rungs:
+            if on_rung is not None:
+                on_rung(rung)
+        return LadderResult(rungs=rungs)
+
+    return fake
+
+
+@pytest.mark.asyncio
+async def test_run_all_streams_every_rung_and_passes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("fleetfix.screens.network.run_ladder", _fake_ladder(_HEALTHY_RUNGS))
+    app = FleetFixApp()
+    async with app.run_test(size=(200, 60)) as pilot:
+        verdict, raw = await _click_check(app, pilot, "#quick-all")
+        assert "all 5 rungs up" in verdict
+        assert app.query_one("#probe-verdict", Static).has_class("verdict-ok")
+        # Every rung is listed, so a passing ladder still shows its working.
+        for rung in _HEALTHY_RUNGS:
+            assert rung.label in raw
+            assert rung.detail in raw
+
+
+@pytest.mark.asyncio
+async def test_run_all_names_the_lowest_broken_rung(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Gateway fails but everything above it works — an ICMP-filtered cloud gateway.
+    # The verdict must point at the gateway (lowest failure) while the raw pane
+    # shows the healthy rungs above it, which is what says the failure didn't
+    # actually matter.
+    rungs = (
+        _HEALTHY_RUNGS[0],
+        _rung("gateway", "default gateway (10.0.0.1)", ok=False, detail="ping produced no summary"),
+        *_HEALTHY_RUNGS[2:],
+    )
+    monkeypatch.setattr("fleetfix.screens.network.run_ladder", _fake_ladder(rungs))
+    app = FleetFixApp()
+    async with app.run_test(size=(200, 60)) as pilot:
+        verdict, raw = await _click_check(app, pilot, "#quick-all")
+        assert "default gateway" in verdict
+        assert "lowest thing broken" in verdict
+        assert app.query_one("#probe-verdict", Static).has_class("verdict-bad")
+        assert "HTTP 200 in 210ms" in raw
+
+
+@pytest.mark.asyncio
+async def test_a_skipped_rung_is_marked_skipped_not_failed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rungs = (
+        _rung("link", "link state", ok=False, detail="no default route"),
+        LadderRung(
+            name="gateway",
+            label="default gateway",
+            ok=False,
+            detail="no gateway to test",
+            skipped=True,
+        ),
+        *_HEALTHY_RUNGS[2:],
+    )
+    monkeypatch.setattr("fleetfix.screens.network.run_ladder", _fake_ladder(rungs))
+    app = FleetFixApp()
+    async with app.run_test(size=(200, 60)) as pilot:
+        verdict, raw = await _click_check(app, pilot, "#quick-all")
+        assert "link state" in verdict
+        # A rung that never ran must not read as a failed one — no ✗ against it.
+        assert "skipped — no gateway to test" in raw
+
+
+@pytest.mark.asyncio
+async def test_gateway_quick_check_pings_the_discovered_gateway(
+    monkeypatch: pytest.MonkeyPatch, _stub_facts: None
+) -> None:
+    pinged: list[str] = []
+
+    def fake_ping(target: str, **_: Any) -> PingSummary:
+        pinged.append(target)
+        return PingSummary(
+            target=target,
+            sent=10,
+            received=10,
+            loss_pct=0.0,
+            rtt_min_ms=0.4,
+            rtt_avg_ms=0.9,
+            rtt_max_ms=1.4,
+            rtt_mdev_ms=0.2,
+        )
+
+    monkeypatch.setattr("fleetfix.screens.network.run_ping", fake_ping)
+    app = FleetFixApp()
+    async with app.run_test(size=(200, 60)) as pilot:
+        verdict, _raw = await _click_check(app, pilot, "#quick-gateway")
+        # No typing: the address came from the routing table.
+        assert pinged == ["10.0.0.1"]
+        assert "10.0.0.1" in verdict
+        assert app.query_one("#probe-verdict", Static).has_class("verdict-ok")
+
+
+@pytest.mark.asyncio
+async def test_gateway_quick_check_with_no_default_route_says_so(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called: list[str] = []
+    monkeypatch.setattr("fleetfix.screens.network.read_network", lambda: None)
+    monkeypatch.setattr(
+        "fleetfix.screens.network.run_ping", lambda target, **_: called.append(target)
+    )
+    app = FleetFixApp()
+    async with app.run_test(size=(200, 60)) as pilot:
+        verdict, raw = await _click_check(app, pilot, "#quick-gateway")
+        assert "no default gateway to ping" in verdict
+        assert app.query_one("#probe-verdict", Static).has_class("verdict-bad")
+        assert "ip route" in raw
+        # Nothing was pinged — a failed ping against a nonexistent address would
+        # be an invented result.
+        assert called == []
+
+
+@pytest.mark.asyncio
+async def test_internet_quick_check_uses_the_configured_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_probes_yml(
+        tmp_path,
+        monkeypatch,
+        "ping:\n  count: 3\n  interval_s: 0.5\nladder:\n  internet_target: 9.9.9.9\n",
+    )
+    seen: list[dict[str, Any]] = []
+
+    def fake_ping(target: str, **kwargs: Any) -> PingSummary:
+        seen.append({"target": target, **kwargs})
+        return PingSummary(
+            target=target,
+            sent=3,
+            received=3,
+            loss_pct=0.0,
+            rtt_min_ms=8.0,
+            rtt_avg_ms=9.0,
+            rtt_max_ms=11.0,
+            rtt_mdev_ms=1.0,
+        )
+
+    monkeypatch.setattr("fleetfix.screens.network.run_ping", fake_ping)
+    app = FleetFixApp()
+    async with app.run_test(size=(200, 60)) as pilot:
+        verdict, _raw = await _click_check(app, pilot, "#quick-internet")
+        assert "9.9.9.9" in verdict
+        # probes.yml governs the knobs too, not just the target list.
+        assert seen == [{"target": "9.9.9.9", "count": 3, "interval_s": 0.5, "timeout_s": 15}]
+
+
+_ONE_OF_EACH = """\
+ping:
+  targets: [10.0.0.1]
+  count: 2
+dns:
+  names: [svc.internal]
+http:
+  urls: [https://api.internal]
+tcp:
+  targets: ["db.internal:5432"]
+"""
+
+
+@pytest.fixture
+def _stub_every_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "fleetfix.screens.network.run_ping",
+        lambda target, **_: PingSummary(
+            target=target,
+            sent=2,
+            received=2,
+            loss_pct=0.0,
+            rtt_min_ms=1.0,
+            rtt_avg_ms=1.5,
+            rtt_max_ms=2.0,
+            rtt_mdev_ms=0.2,
+        ),
+    )
+    monkeypatch.setattr(
+        "fleetfix.modules.network.dns.socket.getaddrinfo",
+        lambda *a, **k: [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("10.0.0.5", 0))],
+    )
+    monkeypatch.setattr(
+        "fleetfix.screens.network.run_curl",
+        lambda url, **_: CurlProbe(
+            url=url,
+            ok=True,
+            http_code=200,
+            time_total_s=0.2,
+            time_namelookup_s=0.01,
+            time_connect_s=0.02,
+            time_appconnect_s=0.05,
+            time_starttransfer_s=0.1,
+            size_download_bytes=64,
+        ),
+    )
+    monkeypatch.setattr(
+        "fleetfix.screens.network.check_port",
+        lambda target, **_: TcpCheck(target=target, state="open", latency_ms=4.0),
+    )
+
+
+@pytest.mark.asyncio
+async def test_probe_set_walks_every_configured_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _stub_every_probe: None
+) -> None:
+    _write_probes_yml(tmp_path, monkeypatch, _ONE_OF_EACH)
+    app = FleetFixApp()
+    async with app.run_test(size=(200, 60)) as pilot:
+        verdict, raw = await _click_check(app, pilot, "#quick-set")
+        assert "all 4 configured probes passed" in verdict
+        assert app.query_one("#probe-verdict", Static).has_class("verdict-ok")
+        # One line per configured target, in layer order.
+        assert raw.index("10.0.0.1") < raw.index("svc.internal") < raw.index("api.internal")
+        assert "db.internal:5432" in raw
+
+
+@pytest.mark.asyncio
+async def test_probe_set_verdict_counts_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _stub_every_probe: None
+) -> None:
+    _write_probes_yml(tmp_path, monkeypatch, _ONE_OF_EACH)
+    monkeypatch.setattr(
+        "fleetfix.screens.network.check_port",
+        lambda target, **_: TcpCheck(target=target, state="timeout", latency_ms=3000.0),
+    )
+    app = FleetFixApp()
+    async with app.run_test(size=(200, 60)) as pilot:
+        verdict, raw = await _click_check(app, pilot, "#quick-set")
+        assert "1 of 4 configured probes failed" in verdict
+        assert app.query_one("#probe-verdict", Static).has_class("verdict-bad")
+        # The passing probes are still listed — the count alone doesn't say which.
+        assert "svc.internal" in raw
+
+
+@pytest.mark.asyncio
+async def test_probe_set_with_no_configured_targets_says_where_to_add_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # `targets: []` is an explicit "no presets on this box", so the button must
+    # explain itself rather than appear broken.
+    _write_probes_yml(
+        tmp_path,
+        monkeypatch,
+        "ping:\n  targets: []\ndns:\n  names: []\nhttp:\n  urls: []\ntcp:\n  targets: []\n",
+    )
+    app = FleetFixApp()
+    async with app.run_test(size=(200, 60)) as pilot:
+        verdict, raw = await _click_check(app, pilot, "#quick-set")
+        assert "no probe targets configured" in verdict
+        assert app.query_one("#probe-verdict", Static).has_class("verdict-warn")
+        assert "probes.yml" in raw

@@ -14,6 +14,7 @@ One output surface means one worker group governs it: see `_probe_worker`.
 from __future__ import annotations
 
 from collections.abc import Callable
+from functools import partial
 from typing import NamedTuple
 
 from textual import work
@@ -25,8 +26,17 @@ from textual.widgets import Button, DataTable, Input, Static, TabbedContent, Tab
 from fleetfix.modules.network.curl_probe import probe as run_curl
 from fleetfix.modules.network.dns import resolve_one
 from fleetfix.modules.network.interfaces import NetworkInfo, read_network
+from fleetfix.modules.network.ladder import LadderResult, LadderRung, run_ladder
 from fleetfix.modules.network.ping import run_ping
-from fleetfix.modules.network.probes import DEFAULT_PROBES, Probes, TcpProbes, TracerouteProbes
+from fleetfix.modules.network.probes import (
+    DEFAULT_PROBES,
+    DnsProbes,
+    HttpProbes,
+    PingProbes,
+    Probes,
+    TcpProbes,
+    TracerouteProbes,
+)
 from fleetfix.modules.network.resolver import ResolverConfig, read_resolver
 from fleetfix.modules.network.sockets import ListeningSocket, list_listening_sockets
 from fleetfix.modules.network.tcp import (
@@ -165,6 +175,10 @@ class NetworkView(LazyScanView):
         # Generation counter for the output surface. Read and written on the UI
         # thread only, so it needs no locking. See `_apply_probe`.
         self._probe_seq = 0
+        # Accumulator for multi-step runs (ladder, probe set) that stream one line
+        # at a time into the raw pane. Cleared by `_set_body`, so a single-shot
+        # probe replacing the pane can never leave half of a previous run behind.
+        self._raw_lines: list[str] = []
         # Defaulting here rather than requiring the argument keeps the view
         # constructible on its own — every e2e test that builds one directly gets
         # the same boring public targets a host with no probes.yml gets.
@@ -216,6 +230,19 @@ class NetworkView(LazyScanView):
             self._refresh_facts()
             self._refresh_sockets()
             return
+        if button_id == "quick-all":
+            self._run_ladder()
+            return
+        if button_id == "quick-gateway":
+            self._run_gateway_ping()
+            return
+        if button_id == "quick-internet":
+            # One click, no typing — the whole reason this button exists.
+            self._run_ping(self._probes.ladder.internet_target)
+            return
+        if button_id == "quick-set":
+            self._run_probe_set()
+            return
         if button_id not in _TARGET_BUTTONS:
             return
         target = self.query_one("#probe-target", Input).value.strip()
@@ -248,18 +275,31 @@ class NetworkView(LazyScanView):
     def _run_curl(self, target: str) -> None:
         if not target.startswith(("http://", "https://")):
             target = "https://" + target
+        cfg = self._probes.http
         seq = self._start_probe(f"curl {target}")
-        self._probe_worker(seq, lambda: _format_curl(target))
+        self._probe_worker(seq, lambda: _format_curl(target, cfg))
 
     def _run_dns(self, target: str) -> None:
         host = _host_of(target)
+        cfg = self._probes.dns
         seq = self._start_probe(f"resolving {host}")
-        self._probe_worker(seq, lambda: _format_dns(host))
+        self._probe_worker(seq, lambda: _format_dns(host, cfg))
 
     def _run_ping(self, target: str) -> None:
         host = _host_of(target)
-        seq = self._start_probe(f"ping {host} (10 packets, ~2s)")
-        self._probe_worker(seq, lambda: _format_ping(host))
+        cfg = self._probes.ping
+        seq = self._start_probe(
+            f"ping {host} ({cfg.count} packets, ~{cfg.count * cfg.interval_s:.0f}s)"
+        )
+        self._probe_worker(seq, lambda: _format_ping(host, cfg))
+
+    def _run_gateway_ping(self) -> None:
+        cfg = self._probes.ping
+        # The gateway address is discovered inside the worker rather than here:
+        # read_network() is two /proc reads, but keeping every probe's I/O off the
+        # UI thread is the rule, not a per-case judgement (issue #2).
+        seq = self._start_probe("ping the default gateway")
+        self._probe_worker(seq, lambda: _format_gateway_ping(cfg))
 
     def _run_trace(self, target: str) -> None:
         host = _host_of(target)
@@ -297,6 +337,61 @@ class NetworkView(LazyScanView):
         seq = self._start_probe(f"tcp connect to {parsed} (~{cfg.timeout_s:g}s max)")
         self._probe_worker(seq, lambda: _format_port(parsed, cfg))
 
+    def _run_ladder(self) -> None:
+        seq = self._start_probe("walking the stack: link → gateway → internet → dns → https (~20s)")
+        self._ladder_worker(seq)
+
+    @work(thread=True, exclusive=True, group="net-probe")
+    def _ladder_worker(self, seq: int) -> None:
+        def on_rung(rung: LadderRung) -> None:
+            # Streamed a rung at a time: the ladder takes ~20s worst case, and a
+            # blank pane for 20s is indistinguishable from a hang.
+            self.app.call_from_thread(self._append_body, seq, _rung_line(rung))
+
+        result = run_ladder(
+            probes=self._probes,
+            on_rung=on_rung,
+            # A plain int load from the worker thread. A stale read costs at most
+            # one extra rung; the authoritative guard is still the UI-thread seq
+            # check in `_append_body` / `_apply_summary`.
+            should_continue=lambda: seq == self._probe_seq,
+        )
+        self.app.call_from_thread(self._apply_summary, seq, *_ladder_verdict(result))
+
+    def _run_probe_set(self) -> None:
+        steps = _probe_set_steps(self._probes)
+        if not steps:
+            # `targets: []` is an explicit "no presets on this box", so say that
+            # rather than silently doing nothing when the button is clicked.
+            self._probe_seq += 1
+            self._show_verdict(
+                "! no probe targets configured",
+                WARN,
+                _body(
+                    "Every target list in probes.yml is empty on this host.\n"
+                    "Use the typed-target row below, or add targets under\n"
+                    "ping / dns / http / tcp in ~/.config/fleetfix/probes.yml."
+                ),
+            )
+            return
+        seq = self._start_probe(f"running {len(steps)} configured probes")
+        self._probe_set_worker(seq, steps)
+
+    @work(thread=True, exclusive=True, group="net-probe")
+    def _probe_set_worker(self, seq: int, steps: list[Callable[[], ProbeOutput]]) -> None:
+        tally: dict[str, int] = {OK: 0, WARN: 0, BAD: 0}
+        for step in steps:
+            if seq != self._probe_seq:
+                # Superseded mid-walk. Stop here instead of finishing a set of
+                # subprocesses whose output can no longer be displayed.
+                return
+            out = step()
+            tally[out.status] = tally.get(out.status, 0) + 1
+            # Only the one-line verdict per target: six full raw bodies would bury
+            # the answer the operator clicked for.
+            self.app.call_from_thread(self._append_body, seq, out.verdict)
+        self.app.call_from_thread(self._apply_summary, seq, *_probe_set_verdict(tally))
+
     def _start_probe(self, label: str) -> int:
         # No `loading = True`: on a height:auto Static that collapses the widget
         # to 0x0, so the spinner is invisible. A named running line is better
@@ -323,12 +418,31 @@ class NetworkView(LazyScanView):
             return
         self._show_verdict(out.verdict, out.status, out.body)
 
+    def _apply_summary(self, seq: int, verdict: str, status: str) -> None:
+        """Final verdict for a multi-step run, leaving the streamed lines in place."""
+        if seq != self._probe_seq:
+            return
+        self._set_verdict(verdict, status)
+
     def _show_verdict(self, verdict: str, status: str, body: str) -> None:
+        self._set_verdict(verdict, status)
+        self._set_body(body)
+
+    def _set_verdict(self, verdict: str, status: str) -> None:
         line = self.query_one("#probe-verdict", Static)
         # set_classes replaces wholesale, so the previous tier can't linger.
         line.set_classes([f"verdict-{status}"] if status else [])
         line.update(verdict)
+
+    def _set_body(self, body: str) -> None:
+        self._raw_lines = [body] if body else []
         self.query_one("#probe-result", Static).update(body)
+
+    def _append_body(self, seq: int, line: str) -> None:
+        if seq != self._probe_seq:
+            return
+        self._raw_lines.append(line)
+        self.query_one("#probe-result", Static).update("\n".join(self._raw_lines))
 
     # The header lines get their own worker group. They are two /proc reads and a
     # file read — sub-millisecond — and must never be cancelled by (or cancel) a
@@ -404,8 +518,51 @@ def _body(detail: str, raw: str = "") -> str:
     return "\n\n".join(blocks)
 
 
-def _format_curl(target: str) -> ProbeOutput:
-    result = run_curl(target)
+def _rung_line(rung: LadderRung) -> str:
+    if rung.skipped:
+        return escape(f"  · {rung.label}: skipped — {rung.detail}")
+    return escape(f"  {_MARKERS[OK if rung.ok else BAD]} {rung.label}: {rung.detail}")
+
+
+def _ladder_verdict(result: LadderResult) -> tuple[str, str]:
+    failure = result.first_failure
+    ran = sum(1 for rung in result.rungs if not rung.skipped)
+    if failure is not None:
+        # The *lowest* failure, not the last one: every rung above it is only
+        # meaningful once this layer works.
+        return escape(f"✗ {failure.label} is the lowest thing broken — {failure.detail}"), BAD
+    if ran == 0:
+        return "! ladder stopped before any rung ran", WARN
+    if ran < len(result.rungs):
+        return f"! {ran} of {len(result.rungs)} rungs passed, the rest never ran", WARN
+    return f"✓ all {ran} rungs up — link, gateway, internet, dns and https all answered", OK
+
+
+def _probe_set_steps(probes: Probes) -> list[Callable[[], ProbeOutput]]:
+    """One callable per configured target, in layer order (ping → dns → http → tcp).
+
+    Layer order so the streamed lines read bottom-up like the ladder does: a failed
+    ping above a failed HTTPS check explains it.
+    """
+    steps: list[Callable[[], ProbeOutput]] = []
+    steps += [partial(_format_ping, target, probes.ping) for target in probes.ping.targets]
+    steps += [partial(_format_dns, name, probes.dns) for name in probes.dns.names]
+    steps += [partial(_format_curl, url, probes.http) for url in probes.http.urls]
+    steps += [partial(_format_port, target, probes.tcp) for target in probes.tcp.targets]
+    return steps
+
+
+def _probe_set_verdict(tally: dict[str, int]) -> tuple[str, str]:
+    ran = sum(tally.values())
+    if tally[BAD]:
+        return f"✗ {tally[BAD]} of {ran} configured probes failed", BAD
+    if tally[WARN]:
+        return f"! {ran} configured probes ran, {tally[WARN]} with warnings", WARN
+    return f"✓ all {ran} configured probes passed", OK
+
+
+def _format_curl(target: str, cfg: HttpProbes) -> ProbeOutput:
+    result = run_curl(target, timeout_s=cfg.timeout_s, max_redirects=cfg.max_redirects)
     if result.error:
         return ProbeOutput(
             f"{_MARKERS[BAD]} curl {target}: {result.error}",
@@ -431,10 +588,10 @@ def _format_curl(target: str) -> ProbeOutput:
     )
 
 
-def _format_dns(host: str) -> ProbeOutput:
+def _format_dns(host: str, cfg: DnsProbes) -> ProbeOutput:
     # No command output to show — resolve_one uses getaddrinfo, so the "raw"
     # block here is a synthesized report. There is no `dig` invocation to find.
-    result = resolve_one(host)
+    result = resolve_one(host, timeout_s=cfg.timeout_s)
     if not result.ok:
         detail = f"DNS {host}: {result.error}  ({result.latency_ms:.1f}ms)"
         return ProbeOutput(f"✗ DNS {host} failed", BAD, _body(detail))
@@ -449,8 +606,24 @@ def _format_dns(host: str) -> ProbeOutput:
     )
 
 
-def _format_ping(host: str) -> ProbeOutput:
-    summary = run_ping(host, count=10, interval_s=0.2)
+def _format_gateway_ping(cfg: PingProbes) -> ProbeOutput:
+    net = read_network()
+    if net is None or not net.gateway:
+        # No gateway means there is no address to ping — and that absence *is* the
+        # diagnosis, so name it rather than reporting an invented failed ping.
+        return ProbeOutput(
+            f"{_MARKERS[BAD]} no default gateway to ping",
+            BAD,
+            _body(
+                "This box has no default route, so it has no first hop off itself.\n"
+                "Check `ip route` — the missing default route is the problem."
+            ),
+        )
+    return _format_ping(net.gateway, cfg)
+
+
+def _format_ping(host: str, cfg: PingProbes) -> ProbeOutput:
+    summary = run_ping(host, count=cfg.count, interval_s=cfg.interval_s, timeout_s=cfg.timeout_s)
     if summary is None:
         return ProbeOutput(
             f"✗ ping {host}: no usable output (binary missing or timed out)",
