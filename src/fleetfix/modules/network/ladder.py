@@ -137,7 +137,13 @@ def _link_rung(label: str, net: NetworkInfo | None) -> LadderRung:
             detail="no default route — this box has no path off itself",
         )
     detail = f"{net.iface} {net.ipv4 or 'no address'} via {net.gateway} ({net.operstate})"
-    return LadderRung(name=LINK, label=label, ok=net.operstate == "up", detail=detail)
+    # Only "down" is a real failure. `operstate` reads "unknown" both for links that
+    # are up and passing traffic but whose driver never reports carrier (wireguard,
+    # tun/tap, some virtio) *and* as `interfaces.operstate()`'s own fallback when the
+    # sysfs read raises — neither proves the link is down. Failing on "unknown" would
+    # hand rung 1 the verdict on a box whose other four rungs all pass, which is the
+    # false attribution this module exists to avoid.
+    return LadderRung(name=LINK, label=label, ok=net.operstate != "down", detail=detail)
 
 
 def _gateway_rung(
@@ -192,9 +198,15 @@ def _https_rung(label: str, probes: Probes, curl_fn: Callable[..., CurlProbe]) -
     )
     if result.error is not None:
         return LadderRung(name=HTTPS, label=label, ok=False, detail=result.error)
+    # Any status code passes: this rung asks "did a TLS+HTTP exchange complete", and a
+    # 401 from an authenticated health endpoint answers that as well as a 200 does.
+    # `CurlProbe.ok` is deliberately narrower (2xx/3xx) because the standalone curl
+    # probe grades the *service*; grading the service here would report "https is the
+    # lowest thing broken" on a healthy host whose `ladder.https_url` needs auth.
+    # Genuine transport failures are the branch above.
     return LadderRung(
         name=HTTPS,
         label=label,
-        ok=result.ok,
+        ok=result.http_code > 0,
         detail=f"HTTP {result.http_code} in {result.time_total_s * 1000:.0f}ms",
     )

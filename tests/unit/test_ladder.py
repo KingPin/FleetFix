@@ -114,6 +114,26 @@ def test_down_interface_fails_the_link_rung() -> None:
     assert result.ok is False
 
 
+def test_unknown_operstate_does_not_fail_the_link_rung() -> None:
+    # "unknown" is what wireguard/tun-tap and carrier-less virtio links report while
+    # passing traffic, and it is also `interfaces.operstate()`'s fallback when the sysfs
+    # read raises. Neither is evidence of a down link, so rung 1 must not take the
+    # verdict away from the rungs that actually measured something.
+    unknown = NetworkInfo(
+        iface="wg0",
+        ipv4="10.9.0.2",
+        gateway="10.9.0.1",
+        operstate="unknown",
+        rx_bytes=1,
+        tx_bytes=1,
+    )
+    result = run_ladder(probes=DEFAULT_PROBES, **_all_good(net_fn=lambda: unknown))
+    assert result.rungs[0].ok is True
+    assert "unknown" in result.rungs[0].detail
+    assert result.ok is True
+    assert result.first_failure is None
+
+
 def test_gateway_failure_does_not_halt_the_ladder() -> None:
     # This pins the do-not-halt decision: an ICMP-filtered cloud gateway must not
     # produce a confident "gateway down" verdict on a box whose internet works.
@@ -169,6 +189,30 @@ def test_curl_error_fails_the_https_rung_with_its_message() -> None:
     )
     assert result.rungs[-1].ok is False
     assert result.rungs[-1].detail == "curl: (35) TLS"
+
+
+def test_authenticated_endpoint_4xx_still_passes_the_https_rung() -> None:
+    # A 401 means the server answered, so every layer beneath it works. `CurlProbe.ok`
+    # is False here because the standalone probe grades the service; the ladder grades
+    # the path, and conflating them reports "https is the lowest thing broken" on a
+    # healthy box whose configured `ladder.https_url` sits behind auth.
+    result = run_ladder(
+        probes=DEFAULT_PROBES, **_all_good(curl_fn=lambda *a, **k: _curl(ok=False, code=401))
+    )
+    assert result.rungs[-1].ok is True
+    assert "HTTP 401" in result.rungs[-1].detail
+    assert result.ok is True
+    assert result.first_failure is None
+
+
+def test_server_error_still_passes_the_https_rung() -> None:
+    # Pins the same decision for 5xx: a broken app behind a working network is the
+    # standalone curl probe's finding to report, not a layer attribution.
+    result = run_ladder(
+        probes=DEFAULT_PROBES, **_all_good(curl_fn=lambda *a, **k: _curl(ok=False, code=502))
+    )
+    assert result.rungs[-1].ok is True
+    assert result.ok is True
 
 
 def test_cancelling_skips_the_remaining_rungs_without_running_them() -> None:
