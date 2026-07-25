@@ -24,6 +24,9 @@ USER_STATE_DIR = (
 
 PATHS_CONFIG_PATH = USER_CONFIG_DIR / "paths.yml"
 PERF_CONFIG_PATH = USER_CONFIG_DIR / "perf.yml"
+# Loader lives in modules/network/probes.py — the schema is richer than anything
+# here and needs tcp.parse_host_port, so only the path constant belongs in config.
+PROBES_CONFIG_PATH = USER_CONFIG_DIR / "probes.yml"
 
 
 def resolve_audit_path() -> Path:
@@ -124,6 +127,10 @@ def read_paths_yaml(path: Path) -> dict[str, Any]:
 
 
 def read_perf_yaml(path: Path) -> dict[str, Any]:
+    return _read_yaml_mapping(path)
+
+
+def read_probes_yaml(path: Path) -> dict[str, Any]:
     return _read_yaml_mapping(path)
 
 

@@ -89,6 +89,19 @@ def test_parse_unrecognised_output_returns_none() -> None:
     assert parse_ping_output("x", "nothing useful here\n") is None
 
 
+def test_parse_keeps_the_raw_output() -> None:
+    summary = parse_ping_output("8.8.8.8", _HEALTHY_UBUNTU)
+    assert summary is not None
+    assert summary.raw == _HEALTHY_UBUNTU
+
+
+def test_parse_keeps_the_raw_output_on_total_loss() -> None:
+    # The 100%-loss path synthesizes its rtt block, so it needs its own assert.
+    summary = parse_ping_output("192.0.2.1", _TOTAL_LOSS)
+    assert summary is not None
+    assert summary.raw == _TOTAL_LOSS
+
+
 def test_run_ping_returns_summary_on_success(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_run(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess:
         return subprocess.CompletedProcess(args=args, returncode=0, stdout=_HEALTHY_UBUNTU)
@@ -98,6 +111,7 @@ def test_run_ping_returns_summary_on_success(monkeypatch: pytest.MonkeyPatch) ->
     assert summary is not None
     assert summary.target == "8.8.8.8"
     assert summary.sent == 3
+    assert summary.raw == _HEALTHY_UBUNTU
 
 
 def test_run_ping_returns_none_on_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
