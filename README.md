@@ -54,7 +54,7 @@ One-click checks, no typing:
 
 | Button | What it does |
 | --- | --- |
-| **Run all** | Walks the stack bottom-up — link, gateway, internet, DNS, HTTPS — streaming a line per rung, then names the *lowest* thing that broke. Every rung runs even after one fails: halting early would confidently report "gateway down" on any cloud host whose gateway just drops ICMP. |
+| **Run all** | Walks the stack bottom-up — link, gateway, internet, DNS, HTTPS — streaming a line per rung, then names the *lowest* thing that broke. Every rung runs even after one fails: halting early would confidently report "gateway down" on any cloud host whose gateway just drops ICMP. A rung only fails on evidence that *its* layer is broken — a link is down only when `operstate` says `down` (`unknown` is what wireguard and carrier-less virtio links report while working), and the HTTPS rung passes on any status code, because a 401 from an auth-gated `ladder.https_url` still proves the whole path under it works. |
 | **Gateway** | Pings whatever the routing table says the first hop is. |
 | **Internet** | Pings the configured `ladder.internet_target`. |
 | **Probe set** | Runs every target in `probes.yml` — one line each, in layer order. |
