@@ -14,15 +14,30 @@ from fleetfix.app import FleetFixApp
 from fleetfix.modules.network.curl_probe import CurlProbe
 from fleetfix.modules.network.interfaces import NetworkInfo
 from fleetfix.modules.network.ping import PingSummary
+from fleetfix.modules.network.probes import DEFAULT_PROBES
 from fleetfix.modules.network.resolver import ResolverConfig
 from fleetfix.modules.network.sockets import ListeningSocket
 from fleetfix.modules.network.tcp import TcpCheck, TcpTarget
 from fleetfix.modules.network.traceroute import TraceHop, TraceResult
+from fleetfix.screens.network import NetworkView
 
 
 @pytest.fixture(autouse=True)
 def _audit_in_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("fleetfix.app.resolve_audit_path", lambda: tmp_path / "audit.log")
+
+
+@pytest.fixture(autouse=True)
+def _no_probes_yml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point probes.yml at a path that doesn't exist, so tests run on the defaults.
+
+    `FleetFixApp.__init__` calls `load_probes()` for real; without this, a
+    probes.yml on the developer's own box would silently change what these tests
+    assert.
+    """
+    monkeypatch.setattr(
+        "fleetfix.modules.network.probes.PROBES_CONFIG_PATH", tmp_path / "absent.yml"
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -505,3 +520,29 @@ async def test_sockets_table_lives_in_its_own_tab() -> None:
         # is instant.
         assert table.row_count == 2
         assert table.query_ancestor(TabPane).id == "tab-sockets"
+
+
+@pytest.mark.asyncio
+async def test_probes_yml_reaches_the_network_view(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = tmp_path / "probes.yml"
+    config.write_text(
+        "traceroute:\n  max_hops: 8\nladder:\n  internet_target: 10.9.9.9\n", encoding="utf-8"
+    )
+    monkeypatch.setattr("fleetfix.modules.network.probes.PROBES_CONFIG_PATH", config)
+    app = FleetFixApp()
+    async with app.run_test(size=(160, 60)) as pilot:
+        await pilot.pause()
+        view = app.query_one("#view-network", NetworkView)
+        assert view._probes.traceroute.max_hops == 8
+        assert view._probes.ladder.internet_target == "10.9.9.9"
+        # Untouched sections still come from the defaults — scalars merge per-key.
+        assert view._probes.ping.targets == DEFAULT_PROBES.ping.targets
+
+
+@pytest.mark.asyncio
+async def test_a_view_built_without_probes_uses_the_defaults() -> None:
+    # A host with no probes.yml is fully functional; that is the whole point of
+    # shipping defaults rather than requiring the file.
+    assert NetworkView()._probes is DEFAULT_PROBES

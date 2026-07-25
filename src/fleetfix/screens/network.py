@@ -26,7 +26,7 @@ from fleetfix.modules.network.curl_probe import probe as run_curl
 from fleetfix.modules.network.dns import resolve_one
 from fleetfix.modules.network.interfaces import NetworkInfo, read_network
 from fleetfix.modules.network.ping import run_ping
-from fleetfix.modules.network.probes import DEFAULT_PROBES, TcpProbes, TracerouteProbes
+from fleetfix.modules.network.probes import DEFAULT_PROBES, Probes, TcpProbes, TracerouteProbes
 from fleetfix.modules.network.resolver import ResolverConfig, read_resolver
 from fleetfix.modules.network.sockets import ListeningSocket, list_listening_sockets
 from fleetfix.modules.network.tcp import (
@@ -160,12 +160,15 @@ class NetworkView(LazyScanView):
     }
     """
 
-    def __init__(self, *, id: str | None = None) -> None:
+    def __init__(self, *, probes: Probes | None = None, id: str | None = None) -> None:
         super().__init__(id=id)
         # Generation counter for the output surface. Read and written on the UI
         # thread only, so it needs no locking. See `_apply_probe`.
         self._probe_seq = 0
-        self._probes = DEFAULT_PROBES
+        # Defaulting here rather than requiring the argument keeps the view
+        # constructible on its own — every e2e test that builds one directly gets
+        # the same boring public targets a host with no probes.yml gets.
+        self._probes = probes if probes is not None else DEFAULT_PROBES
 
     def compose(self) -> ComposeResult:
         with TabbedContent(id="net-tabs"):

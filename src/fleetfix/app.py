@@ -22,6 +22,7 @@ from fleetfix.config import (
     resolve_audit_path,
     resolve_inspect_target,
 )
+from fleetfix.modules.network.probes import Probes, load_probes
 from fleetfix.privilege import PrivilegeState
 from fleetfix.privilege import detect as detect_privilege
 from fleetfix.screens.audit_log import AuditLogView
@@ -87,6 +88,9 @@ class FleetFixApp(App[None]):
         self.privilege: PrivilegeState = detect_privilege()
         self.audit_path = resolve_audit_path()
         self._otel_sink = make_sink(load_otel_config())
+        # Read once at startup, not per-probe: probes.yml is operator config, and
+        # re-reading it on every click would make one edit apply mid-workflow.
+        self.probes: Probes = load_probes()
         self.inspect_target: InspectTarget | None = resolve_inspect_target(
             cli_user=target_user,
             paths_cfg=read_paths_yaml(PATHS_CONFIG_PATH),
@@ -120,7 +124,7 @@ class FleetFixApp(App[None]):
                         yield StorageView(id="view-storage")
                         continue
                     if item.key == "network":
-                        yield NetworkView(id="view-network")
+                        yield NetworkView(probes=self.probes, id="view-network")
                         continue
                     if item.key == "disk":
                         yield DiskView(id="view-disk")
