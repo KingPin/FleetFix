@@ -67,6 +67,7 @@ def test_probe_returns_parsed_on_success(monkeypatch: pytest.MonkeyPatch) -> Non
     result = probe("https://api.internal/health")
     assert result.ok is True
     assert result.url == "https://api.internal/health"
+    assert result.raw == _HEALTHY
 
 
 def test_probe_handles_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -102,3 +103,24 @@ def test_probe_returns_failure_when_no_marker_present(monkeypatch: pytest.Monkey
     result = probe("https://nope.example")
     assert result.ok is False
     assert "Could not resolve host" in (result.error or "")
+    # On the failure path the useful text is stderr, so that is what raw carries.
+    assert "curl: (6) Could not resolve host" in result.raw
+
+
+def test_probe_records_stderr_alongside_a_successful_parse(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_run(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess:
+        return subprocess.CompletedProcess(
+            args=args,
+            returncode=0,
+            stdout=_HEALTHY,
+            stderr="curl: (60) certificate verify skipped\n",
+        )
+
+    monkeypatch.setattr(curl_probe.subprocess, "run", fake_run)
+    result = probe("https://api.internal/health")
+    assert result.ok is True
+    # A warning curl emitted on the way to a 200 is still worth showing.
+    assert "certificate verify skipped" in result.raw
+    assert "FLEETFIX_CURL_PROBE" in result.raw

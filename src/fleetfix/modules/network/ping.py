@@ -36,6 +36,10 @@ class PingSummary:
     rtt_avg_ms: float
     rtt_max_ms: float
     rtt_mdev_ms: float
+    # Verbatim command output, so the screen can show what ping actually said
+    # rather than only our extraction of it. Defaulted so callers that
+    # construct summaries directly (tests, synthetic data) stay valid.
+    raw: str = ""
 
     @property
     def jitter_ms(self) -> float:
@@ -64,6 +68,7 @@ def parse_ping_output(target: str, output: str) -> PingSummary | None:
             rtt_avg_ms=0.0,
             rtt_max_ms=0.0,
             rtt_mdev_ms=0.0,
+            raw=output,
         )
 
     return PingSummary(
@@ -75,6 +80,7 @@ def parse_ping_output(target: str, output: str) -> PingSummary | None:
         rtt_avg_ms=float(rtt_match.group(2)),
         rtt_max_ms=float(rtt_match.group(3)),
         rtt_mdev_ms=float(rtt_match.group(4)),
+        raw=output,
     )
 
 

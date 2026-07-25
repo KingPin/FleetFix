@@ -35,10 +35,19 @@ class CurlProbe:
     time_starttransfer_s: float
     size_download_bytes: int
     error: str | None = None
+    # Verbatim command output for the screen's raw pane. On the failure path this
+    # is curl's stderr, which is where the useful message lives (TLS handshake,
+    # name resolution, connection refused).
+    raw: str = ""
 
 
-def parse_curl_output(url: str, output: str) -> CurlProbe | None:
-    """Parse the -w template above into a CurlProbe. Returns None on bad input."""
+def parse_curl_output(url: str, output: str, *, raw: str | None = None) -> CurlProbe | None:
+    """Parse the -w template above into a CurlProbe. Returns None on bad input.
+
+    `raw` lets the caller record more than it parses — `probe` passes stdout and
+    stderr combined, since a warning curl emitted on the way to a 200 is worth
+    showing even though only stdout carries the template.
+    """
     marker_idx = output.rfind("FLEETFIX_CURL_PROBE")
     if marker_idx == -1:
         return None
@@ -61,6 +70,7 @@ def parse_curl_output(url: str, output: str) -> CurlProbe | None:
             time_starttransfer_s=float(fields["time_starttransfer"]),
             time_total_s=float(fields["time_total"]),
             size_download_bytes=int(fields["size_download"]),
+            raw=output if raw is None else raw,
         )
     except (KeyError, ValueError):
         return None
@@ -100,14 +110,15 @@ def probe(
     except OSError as exc:
         return _failed(url, f"curl unavailable: {exc}")
 
-    parsed = parse_curl_output(url, result.stdout)
+    raw = (result.stderr or "") + (result.stdout or "")
+    parsed = parse_curl_output(url, result.stdout, raw=raw)
     if parsed is not None:
         return parsed
     err = (result.stderr or "").strip().splitlines()
-    return _failed(url, err[-1] if err else f"curl exited {result.returncode}")
+    return _failed(url, err[-1] if err else f"curl exited {result.returncode}", raw=raw)
 
 
-def _failed(url: str, error: str) -> CurlProbe:
+def _failed(url: str, error: str, *, raw: str = "") -> CurlProbe:
     return CurlProbe(
         url=url,
         ok=False,
@@ -119,4 +130,5 @@ def _failed(url: str, error: str) -> CurlProbe:
         time_starttransfer_s=0.0,
         size_download_bytes=0,
         error=error,
+        raw=raw,
     )
