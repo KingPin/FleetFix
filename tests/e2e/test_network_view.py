@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from textual.widgets import DataTable, Input, Static
+from textual.widgets import DataTable, Input, Static, TabbedContent, TabPane
 
 from fleetfix.app import FleetFixApp
 from fleetfix.modules.network.curl_probe import CurlProbe
@@ -138,3 +138,59 @@ async def test_empty_target_shows_prompt() -> None:
         await pilot.pause()
         result = str(app.query_one("#probe-result", Static).render())
         assert "Enter a target" in result
+
+
+# Every control on the Checks tab, in the order they compose.
+_CONTROL_IDS = (
+    "#quick-all",
+    "#quick-gateway",
+    "#quick-internet",
+    "#quick-set",
+    "#net-refresh",
+    "#probe-target",
+    "#probe-curl",
+    "#probe-dns",
+    "#probe-ping",
+    "#probe-trace",
+    "#probe-port",
+)
+
+
+@pytest.mark.asyncio
+async def test_controls_reachable_at_80x24() -> None:
+    # 80x24 is the floor we support — a serial console. The failure mode this
+    # catches is a button that composes but gets clipped to zero width, which
+    # makes it silently unclickable rather than visibly broken.
+    app = FleetFixApp()
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.pause()
+        app.action_switch("network")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        for control_id in _CONTROL_IDS:
+            region = app.query_one(control_id).region
+            assert region.width > 0, f"{control_id} is clipped to zero width at 80x24"
+            assert region.height > 0, f"{control_id} is clipped to zero height at 80x24"
+        # The two extremes of the layout: first quick check, last probe button.
+        await pilot.click("#net-refresh")
+        await pilot.click("#probe-port")
+        await pilot.pause()
+        # The raw pane still gets usable room after every control is placed.
+        assert app.query_one("#raw-pane").region.height >= 4
+
+
+@pytest.mark.asyncio
+async def test_sockets_table_lives_in_its_own_tab() -> None:
+    app = FleetFixApp()
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.pause()
+        app.action_switch("network")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        # Checks is what an operator lands on.
+        assert app.query_one("#net-tabs", TabbedContent).active == "tab-checks"
+        table = app.query_one("#sockets-table", DataTable)
+        # It loaded eagerly despite its pane being inactive, so switching to it
+        # is instant.
+        assert table.row_count == 2
+        assert table.query_ancestor(TabPane).id == "tab-sockets"
