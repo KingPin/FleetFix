@@ -24,7 +24,9 @@ from textual.widgets import Button, DataTable, Input, Static, TabbedContent, Tab
 
 from fleetfix.modules.network.curl_probe import probe as run_curl
 from fleetfix.modules.network.dns import resolve_one
+from fleetfix.modules.network.interfaces import NetworkInfo, read_network
 from fleetfix.modules.network.ping import run_ping
+from fleetfix.modules.network.resolver import ResolverConfig, read_resolver
 from fleetfix.modules.network.sockets import ListeningSocket, list_listening_sockets
 from fleetfix.screens.base import LazyScanView
 
@@ -54,6 +56,13 @@ class ProbeOutput(NamedTuple):
     body: str
 
 
+class NetFacts(NamedTuple):
+    """The cheap always-on facts behind the two header lines."""
+
+    net: NetworkInfo | None
+    resolver: ResolverConfig
+
+
 class NetworkView(LazyScanView):
     DEFAULT_CSS = """
     NetworkView {
@@ -74,6 +83,7 @@ class NetworkView(LazyScanView):
     NetworkView #link-summary, NetworkView #resolver-summary {
         height: 1;
         color: $text-muted;
+        text-overflow: ellipsis;
     }
     /* Grid, not Horizontal: a 5x1 grid gives every button a deterministic 1/5
        share, so nothing clips at 80 columns and nothing balloons at 160. */
@@ -158,8 +168,9 @@ class NetworkView(LazyScanView):
                 yield sockets_table
 
     def start_initial_scan(self) -> None:
-        # Eager even though the Sockets pane is inactive: query_one resolves
-        # through an inactive TabPane, and the table is then already populated
+        self._refresh_facts()
+        # Sockets load eagerly even though their pane is inactive: query_one
+        # resolves through an inactive TabPane, so the table is already populated
         # when the operator switches to it.
         self._refresh_sockets()
 
@@ -167,6 +178,10 @@ class NetworkView(LazyScanView):
         # The repo uses no @on decorators; one id ladder keeps every route to the
         # output surface visible in one place.
         button_id = event.button.id
+        if button_id == "net-refresh":
+            self._refresh_facts()
+            self._refresh_sockets()
+            return
         if button_id not in _TARGET_BUTTONS:
             return
         target = self.query_one("#probe-target", Input).value.strip()
@@ -241,6 +256,23 @@ class NetworkView(LazyScanView):
         line.update(verdict)
         self.query_one("#probe-result", Static).update(body)
 
+    # The header lines get their own worker group. They are two /proc reads and a
+    # file read — sub-millisecond — and must never be cancelled by (or cancel) a
+    # 25-second traceroute sharing the screen. One group per destination widget
+    # set is the rule.
+
+    def _refresh_facts(self) -> None:
+        self._load_facts()
+
+    @work(thread=True, exclusive=True, group="net-facts")
+    def _load_facts(self) -> None:
+        facts = NetFacts(net=read_network(), resolver=read_resolver())
+        self.app.call_from_thread(self._apply_facts, facts)
+
+    def _apply_facts(self, facts: NetFacts) -> None:
+        self.query_one("#link-summary", Static).update(_format_link(facts.net))
+        self.query_one("#resolver-summary", Static).update(_format_resolver(facts.resolver))
+
     def _refresh_sockets(self) -> None:
         self.query_one("#sockets-table", DataTable).loading = True
         self._load_sockets()
@@ -261,6 +293,24 @@ class NetworkView(LazyScanView):
                 sock.process_name or "—",
                 str(sock.pid) if sock.pid is not None else "—",
             )
+
+
+def _format_link(net: NetworkInfo | None) -> str:
+    if net is None:
+        return "link  no default route — this box has no path off itself"
+    return f"link  {net.iface}  {net.ipv4 or 'no address'}  via {net.gateway}  ({net.operstate})"
+
+
+def _format_resolver(resolver: ResolverConfig) -> str:
+    if not resolver.nameservers:
+        return f"dns   no nameservers in {resolver.source}"
+    servers = ", ".join(resolver.nameservers)
+    if resolver.stub_resolver:
+        # The addresses that actually answer sit behind the stub, so saying
+        # "127.0.0.53" alone would send the operator hunting a broken loopback.
+        return f"dns   {servers}  (systemd-resolved stub — upstreams: resolvectl status)"
+    search = f"  search {' '.join(resolver.search)}" if resolver.search else ""
+    return f"dns   {servers}{search}"
 
 
 def _host_of(target: str) -> str:

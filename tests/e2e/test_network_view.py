@@ -12,7 +12,9 @@ from textual.widgets import DataTable, Input, Static, TabbedContent, TabPane
 
 from fleetfix.app import FleetFixApp
 from fleetfix.modules.network.curl_probe import CurlProbe
+from fleetfix.modules.network.interfaces import NetworkInfo
 from fleetfix.modules.network.ping import PingSummary
+from fleetfix.modules.network.resolver import ResolverConfig
 from fleetfix.modules.network.sockets import ListeningSocket
 
 
@@ -32,6 +34,26 @@ def _stub_listening_sockets(monkeypatch: pytest.MonkeyPatch) -> None:
             ),
         ],
     )
+
+
+_UP = NetworkInfo(
+    iface="eth0", ipv4="10.0.0.9", gateway="10.0.0.1", operstate="up", rx_bytes=1, tx_bytes=2
+)
+
+
+def _resolver(*nameservers: str) -> ResolverConfig:
+    return ResolverConfig(
+        nameservers=nameservers,
+        search=("corp.internal",),
+        options=(),
+        source="/etc/resolv.conf",
+    )
+
+
+@pytest.fixture
+def _stub_facts(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("fleetfix.screens.network.read_network", lambda: _UP)
+    monkeypatch.setattr("fleetfix.screens.network.read_resolver", lambda: _resolver("10.0.0.53"))
 
 
 @pytest.mark.asyncio
@@ -196,6 +218,82 @@ async def test_superseded_probe_result_never_lands(monkeypatch: pytest.MonkeyPat
         assert "HTTP 204" in verdict
         assert "HTTP 204" in result
         assert "99.9ms" not in result
+
+
+@pytest.mark.asyncio
+async def test_header_panels_populate_on_first_show(_stub_facts: None) -> None:
+    app = FleetFixApp()
+    async with app.run_test(size=(160, 60)) as pilot:
+        await pilot.pause()
+        app.action_switch("network")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        link = str(app.query_one("#link-summary", Static).render())
+        dns = str(app.query_one("#resolver-summary", Static).render())
+        assert "eth0" in link
+        assert "10.0.0.9" in link
+        assert "10.0.0.1" in link
+        assert "up" in link
+        assert "10.0.0.53" in dns
+        assert "corp.internal" in dns
+
+
+@pytest.mark.asyncio
+async def test_no_default_route_says_so(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("fleetfix.screens.network.read_network", lambda: None)
+    monkeypatch.setattr("fleetfix.screens.network.read_resolver", lambda: _resolver("10.0.0.53"))
+    app = FleetFixApp()
+    async with app.run_test(size=(160, 60)) as pilot:
+        await pilot.pause()
+        app.action_switch("network")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert "no default route" in str(app.query_one("#link-summary", Static).render())
+
+
+@pytest.mark.asyncio
+async def test_systemd_stub_resolver_points_at_resolvectl(monkeypatch: pytest.MonkeyPatch) -> None:
+    # "nameserver 127.0.0.53" on its own sends an operator hunting a broken
+    # loopback resolver; the real upstreams are behind the stub.
+    monkeypatch.setattr("fleetfix.screens.network.read_network", lambda: _UP)
+    monkeypatch.setattr("fleetfix.screens.network.read_resolver", lambda: _resolver("127.0.0.53"))
+    app = FleetFixApp()
+    async with app.run_test(size=(160, 60)) as pilot:
+        await pilot.pause()
+        app.action_switch("network")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        dns = str(app.query_one("#resolver-summary", Static).render())
+        assert "resolvectl status" in dns
+
+
+@pytest.mark.asyncio
+async def test_refresh_reloads_facts_and_sockets(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = {"net": 0, "resolver": 0, "sockets": 0}
+
+    def count(key: str, value: Any) -> Any:
+        calls[key] += 1
+        return value
+
+    monkeypatch.setattr("fleetfix.screens.network.read_network", lambda: count("net", _UP))
+    monkeypatch.setattr(
+        "fleetfix.screens.network.read_resolver", lambda: count("resolver", _resolver("10.0.0.53"))
+    )
+    monkeypatch.setattr(
+        "fleetfix.screens.network.list_listening_sockets", lambda: count("sockets", [])
+    )
+    app = FleetFixApp()
+    async with app.run_test(size=(160, 60)) as pilot:
+        await pilot.pause()
+        app.action_switch("network")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert calls == {"net": 1, "resolver": 1, "sockets": 1}
+        # The screen had no refresh control at all before this.
+        await pilot.click("#net-refresh")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert calls == {"net": 2, "resolver": 2, "sockets": 2}
 
 
 # Every control on the Checks tab, in the order they compose.
