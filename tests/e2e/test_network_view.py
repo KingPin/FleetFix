@@ -328,7 +328,14 @@ async def _run_probe(app: FleetFixApp, pilot: Any, target: str, button: str) -> 
 async def _click_check(
     app: FleetFixApp, pilot: Any, button: str, *, target: str | None = None
 ) -> tuple[str, str]:
-    """Click a check, optionally typing a target first; return (verdict, raw) text."""
+    """Click a check, optionally typing a target first; return (verdict, raw) text.
+
+    Do not click the *same* button twice in one test. `Button._on_click` ignores a
+    click while the widget still carries `-active` (cleared by a 0.2s timer), and
+    `wait_for_complete()` + `pause()` don't advance enough wall clock to clear it —
+    so the second click is silently dropped and the test asserts against the first
+    result while looking like it exercised two. Alternate buttons instead.
+    """
     await pilot.pause()
     app.action_switch("network")
     await app.workers.wait_for_complete()
