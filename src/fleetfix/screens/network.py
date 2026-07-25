@@ -122,6 +122,9 @@ class NetworkView(LazyScanView):
 
     def __init__(self, *, id: str | None = None) -> None:
         super().__init__(id=id)
+        # Generation counter for the output surface. Read and written on the UI
+        # thread only, so it needs no locking. See `_apply_probe`.
+        self._probe_seq = 0
 
     def compose(self) -> ComposeResult:
         with TabbedContent(id="net-tabs"):
@@ -168,6 +171,9 @@ class NetworkView(LazyScanView):
             return
         target = self.query_one("#probe-target", Input).value.strip()
         if not target:
+            # Bump too: whatever is in flight is now stale, and letting it land
+            # on top of this message would be the same clobber bug.
+            self._probe_seq += 1
             self._show_verdict(
                 "! no target",
                 WARN,
@@ -189,32 +195,43 @@ class NetworkView(LazyScanView):
     def _run_curl(self, target: str) -> None:
         if not target.startswith(("http://", "https://")):
             target = "https://" + target
-        self._start_probe(f"curl {target}")
-        self._probe_worker(lambda: _format_curl(target))
+        seq = self._start_probe(f"curl {target}")
+        self._probe_worker(seq, lambda: _format_curl(target))
 
     def _run_dns(self, target: str) -> None:
         host = _host_of(target)
-        self._start_probe(f"resolving {host}")
-        self._probe_worker(lambda: _format_dns(host))
+        seq = self._start_probe(f"resolving {host}")
+        self._probe_worker(seq, lambda: _format_dns(host))
 
     def _run_ping(self, target: str) -> None:
         host = _host_of(target)
-        self._start_probe(f"ping {host} (10 packets, ~2s)")
-        self._probe_worker(lambda: _format_ping(host))
+        seq = self._start_probe(f"ping {host} (10 packets, ~2s)")
+        self._probe_worker(seq, lambda: _format_ping(host))
 
-    def _start_probe(self, label: str) -> None:
+    def _start_probe(self, label: str) -> int:
         # No `loading = True`: on a height:auto Static that collapses the widget
         # to 0x0, so the spinner is invisible. A named running line is better
         # anyway — it can say which tool and roughly how long, which a spinner
         # cannot.
+        self._probe_seq += 1
         self._show_verdict(f"[dim]⋯ {label}[/]", "", "")
+        return self._probe_seq
 
     @work(thread=True, exclusive=True, group="net-probe")
-    def _probe_worker(self, compute: Callable[[], ProbeOutput]) -> None:
+    def _probe_worker(self, seq: int, compute: Callable[[], ProbeOutput]) -> None:
         out = compute()
-        self.app.call_from_thread(self._apply_probe, out)
+        self.app.call_from_thread(self._apply_probe, seq, out)
 
-    def _apply_probe(self, out: ProbeOutput) -> None:
+    def _apply_probe(self, seq: int, out: ProbeOutput) -> None:
+        # `exclusive=True` cancels the Worker *object*; it cannot interrupt an OS
+        # thread already inside a subprocess call. That thread still reaches this
+        # point and would clobber a newer result — routine once a 25s traceroute
+        # and a 2s ping share the pane. `get_current_worker().is_cancelled` is
+        # not enough on its own: it is read on the worker thread and can flip
+        # between the check and the call_from_thread. This runs on the UI thread
+        # at apply time, where `_probe_seq` cannot change underneath it.
+        if seq != self._probe_seq:
+            return
         self._show_verdict(out.verdict, out.status, out.body)
 
     def _show_verdict(self, verdict: str, status: str, body: str) -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import socket
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -138,6 +139,63 @@ async def test_empty_target_shows_prompt() -> None:
         await pilot.pause()
         result = str(app.query_one("#probe-result", Static).render())
         assert "Enter a target" in result
+
+
+@pytest.mark.asyncio
+async def test_superseded_probe_result_never_lands(monkeypatch: pytest.MonkeyPatch) -> None:
+    # exclusive=True cancels the Worker object but cannot interrupt a thread
+    # already inside a subprocess call. The abandoned thread still reaches its
+    # call_from_thread, and before the generation counter it clobbered the newer
+    # result — a stale answer on screen with no sign anything was wrong.
+    release = threading.Event()
+
+    def slow_ping(target: str, **_: Any) -> PingSummary:
+        release.wait(5)
+        return PingSummary(
+            target=target,
+            sent=10,
+            received=10,
+            loss_pct=0.0,
+            rtt_min_ms=1.0,
+            rtt_avg_ms=99.9,
+            rtt_max_ms=100.0,
+            rtt_mdev_ms=0.5,
+        )
+
+    def fast_curl(url: str, **_: Any) -> CurlProbe:
+        return CurlProbe(
+            url=url,
+            ok=True,
+            http_code=204,
+            time_total_s=0.01,
+            time_namelookup_s=0.001,
+            time_connect_s=0.002,
+            time_appconnect_s=0.003,
+            time_starttransfer_s=0.004,
+            size_download_bytes=0,
+        )
+
+    monkeypatch.setattr("fleetfix.screens.network.run_ping", slow_ping)
+    monkeypatch.setattr("fleetfix.screens.network.run_curl", fast_curl)
+    app = FleetFixApp()
+    async with app.run_test(size=(160, 60)) as pilot:
+        await pilot.pause()
+        app.action_switch("network")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        app.query_one("#probe-target", Input).value = "10.0.0.1"
+        await pilot.click("#probe-ping")
+        # Supersede it while the ping thread is still blocked.
+        await pilot.click("#probe-curl")
+        await pilot.pause()
+        release.set()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        result = str(app.query_one("#probe-result", Static).render())
+        verdict = str(app.query_one("#probe-verdict", Static).render())
+        assert "HTTP 204" in verdict
+        assert "HTTP 204" in result
+        assert "99.9ms" not in result
 
 
 # Every control on the Checks tab, in the order they compose.
