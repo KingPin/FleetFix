@@ -46,6 +46,18 @@ linters:
             - pkg: github.com/gdamore/tcell/v2
               desc: terminal rendering belongs in internal/tui; check --json and the agent must not depend on it
 
+        # internal/fixture imports testing, which registers the -test.* flags into
+        # any binary that links it. Nothing shipping may reach for it.
+        fixtures-are-test-only:
+          list-mode: lax
+          files:
+            - "!$test"
+          deny:
+            - pkg: github.com/KingPin/FleetFix/v2/internal/fixture
+              desc: >-
+                internal/fixture is test-only; importing it from shipping code puts
+                the testing package's flags into the fleetfix binary
+
         yaml-only-in-config:
           list-mode: lax
           files:
