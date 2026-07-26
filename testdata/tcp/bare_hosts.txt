@@ -1,0 +1,10 @@
+db.internal
+[fe80::1]
+::1
+ftp://files.example.com
+db.internal:5433
+h:443:8
+:443
+[]:443
+[::1
+db.internal:0

@@ -58,7 +58,14 @@ from fleetfix.modules.disk import ghost, inodes, smart, usage  # noqa: E402
 from fleetfix.modules.docker import dashboard as docker_dashboard  # noqa: E402
 from fleetfix.modules.docker import hygiene as docker_hygiene  # noqa: E402
 from fleetfix.modules.log_squeeze import gzip_inplace  # noqa: E402
-from fleetfix.modules.network import curl_probe, interfaces, ping, resolver, sockets  # noqa: E402
+from fleetfix.modules.network import (  # noqa: E402
+    curl_probe,
+    interfaces,
+    ping,
+    resolver,
+    sockets,
+    tcp,
+)
 from fleetfix.modules.network import traceroute as tr  # noqa: E402
 from fleetfix.modules.services import boot as services_boot  # noqa: E402
 from fleetfix.modules.services import failed as services_failed  # noqa: E402
@@ -98,6 +105,12 @@ DISPATCH: dict[str, Adapter] = {
     "net.parse_tracepath_output": lambda t, a: tr.parse_tracepath_output(
         a["target"], t, max_hops=a["max_hops"]
     ),
+    # One target per line: parse_host_port takes a single string, so the adapter
+    # maps over the fixture's lines and the result is a list, with None wherever a
+    # line named no reachable target.
+    "net.parse_host_port": lambda t, a: [
+        tcp.parse_host_port(line, default_port=a["default_port"]) for line in t.splitlines() if line
+    ],
     "net.parse_resolv_conf": lambda t, a: resolver.parse_resolv_conf(t),
     "net.parse_ss_output": lambda t, a: sockets.parse_ss_output(t),
     "net.read_counters": lambda p, a: interfaces.read_counters(p),

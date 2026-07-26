@@ -17,6 +17,7 @@ import (
 	"github.com/KingPin/FleetFix/v2/internal/core/services"
 	"github.com/KingPin/FleetFix/v2/internal/core/storage"
 	"github.com/KingPin/FleetFix/v2/internal/core/system"
+	"github.com/KingPin/FleetFix/v2/internal/pytext"
 	"github.com/KingPin/FleetFix/v2/internal/updater"
 )
 
@@ -167,6 +168,30 @@ var dispatch = map[string]adapter{
 			return v, nil
 		}
 		return nil, nil
+	}),
+	// One target per line rather than one per case: parse_host_port takes a single
+	// string, and a case per form would be dozens of near-identical fixtures. The
+	// adapter maps over the lines and returns a list, so one fixture is one column
+	// of the behaviour table and a divergence names the line that produced it.
+	"net.parse_host_port": text(func(t string, args map[string]any) (any, error) {
+		defaultPort, err := nullableIntArg(args, "default_port")
+		if err != nil {
+			return nil, err
+		}
+		out := []any{}
+		for _, line := range pytext.SplitLines(t) {
+			if line == "" {
+				continue
+			}
+			// Python appends None for a line it cannot read, which is what makes a
+			// fixture able to hold the rejections alongside the targets.
+			if target, ok := network.ParseHostPort(line, defaultPort); ok {
+				out = append(out, target)
+			} else {
+				out = append(out, nil)
+			}
+		}
+		return out, nil
 	}),
 	"net.parse_resolv_conf": text(func(t string, _ map[string]any) (any, error) {
 		// source is keyword-only with a "" default and py_oracle leaves it there,
@@ -398,6 +423,31 @@ func strMapArg(args map[string]any, key string) (map[string]string, error) {
 		out[k] = s
 	}
 	return out, nil
+}
+
+// nullableIntArg reads a manifest argument the Python signature types as
+// `int | None`, returning nil for a JSON null.
+//
+// Separate from intArg because the distinction is the behaviour under test:
+// parse_host_port's default_port is passed through unvalidated when present, so a
+// null and a zero are different answers and collapsing them would hide it.
+func nullableIntArg(args map[string]any, key string) (*int64, error) {
+	v, ok := args[key]
+	if !ok {
+		return nil, fmt.Errorf("manifest case has no %q argument", key)
+	}
+	if v == nil {
+		return nil, nil
+	}
+	f, ok := v.(float64)
+	if !ok {
+		return nil, fmt.Errorf("manifest argument %q is %T, want a number or null", key, v)
+	}
+	if f != math.Trunc(f) {
+		return nil, fmt.Errorf("manifest argument %q is %v, want a whole number", key, f)
+	}
+	n := int64(f)
+	return &n, nil
 }
 
 // intArg reads a whole-number manifest argument. JSON has one number type, so

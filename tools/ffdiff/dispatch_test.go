@@ -435,6 +435,95 @@ func TestStrMapArg(t *testing.T) {
 	}
 }
 
+func TestNullableIntArg(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]any
+		want *int64
+		err  bool
+	}{
+		// A null and a zero are different answers here, because default_port is
+		// passed through unvalidated when present.
+		{"null", map[string]any{"default_port": nil}, nil, false},
+		{"zero", map[string]any{"default_port": float64(0)}, ptrTo(int64(0)), false},
+		{"number", map[string]any{"default_port": float64(5432)}, ptrTo(int64(5432)), false},
+		{"negative", map[string]any{"default_port": float64(-5)}, ptrTo(int64(-5)), false},
+		{"absent", map[string]any{}, nil, true},
+		{"fractional", map[string]any{"default_port": 443.5}, nil, true},
+		{"not a number", map[string]any{"default_port": "443"}, nil, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := nullableIntArg(tt.args, "default_port")
+			if (err != nil) != tt.err {
+				t.Fatalf("nullableIntArg(%v) error = %v, want an error: %v", tt.args, err, tt.err)
+			}
+			switch {
+			case got == nil && tt.want == nil:
+			case got == nil || tt.want == nil || *got != *tt.want:
+				t.Errorf("nullableIntArg(%v) = %v, want %v", tt.args, got, tt.want)
+			}
+		})
+	}
+}
+
+func ptrTo[T any](v T) *T { return &v }
+
+func TestHostPortAdapterSpellsARejectedLineAsNull(t *testing.T) {
+	// Python appends None for a line that names no target, so the list keeps its
+	// alignment with the fixture's lines and a divergence names the right one.
+	v, err := dispatch["net.parse_host_port"].run("h:443\n:443\nh\n", map[string]any{"default_port": nil})
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	got, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	const want = `[{"host":"h","port":443},null,null]`
+	if string(got) != want {
+		t.Errorf("net.parse_host_port = %s, want %s", got, want)
+	}
+}
+
+func TestHostPortAdapterAppliesTheDefaultPort(t *testing.T) {
+	v, err := dispatch["net.parse_host_port"].run("h\n", map[string]any{"default_port": float64(5432)})
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	got, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	const want = `[{"host":"h","port":5432}]`
+	if string(got) != want {
+		t.Errorf("net.parse_host_port = %s, want %s", got, want)
+	}
+}
+
+func TestHostPortAdapterRequiresItsArgument(t *testing.T) {
+	// py_oracle indexes args["default_port"] directly, so an absent one is a
+	// KeyError there and must not be a silent None here.
+	if _, err := dispatch["net.parse_host_port"].run("h:443\n", map[string]any{}); err == nil {
+		t.Error("net.parse_host_port with no default_port argument = no error")
+	}
+}
+
+func TestHostPortAdapterSpellsAnEmptyFixtureAsAList(t *testing.T) {
+	// A nil slice marshals as null, which would compare unequal to Python's [].
+	v, err := dispatch["net.parse_host_port"].run("\n\n", map[string]any{"default_port": nil})
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	got, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if string(got) != "[]" {
+		t.Errorf("net.parse_host_port on blank lines = %s, want []", got)
+	}
+}
+
 func TestSystemAdaptersReportAnUnreadableFileAsPythonDoes(t *testing.T) {
 	// The oracle hands each adapter a real path, so a missing one is the only
 	// failure reachable through the adapter rather than through the reader.
