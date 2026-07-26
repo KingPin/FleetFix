@@ -72,7 +72,7 @@ from fleetfix.modules.network import traceroute as tr  # noqa: E402
 from fleetfix.modules.procs import ranker  # noqa: E402
 from fleetfix.modules.services import boot as services_boot  # noqa: E402
 from fleetfix.modules.services import failed as services_failed  # noqa: E402
-from fleetfix.modules.storage import env_check  # noqa: E402
+from fleetfix.modules.storage import env_check, stale  # noqa: E402
 from fleetfix.modules.system import metrics, thermal, updates  # noqa: E402
 from fleetfix.updater import checker, installer  # noqa: E402
 
@@ -107,6 +107,18 @@ def materialise_tree(node: dict[str, Any], at: Path) -> None:
             materialise_tree(child, target)
         else:
             raise TypeError(f"{target}: want a string (a file) or an object (a directory)")
+
+
+def globs_arg(args: dict[str, Any], key: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    """Read an optional glob-list argument, falling back to a shipped constant.
+
+    Absent and ``null`` both mean the default -- matching ``optStrListArg`` on the Go
+    side -- but an explicitly empty list does not. A case that empties a glob list is
+    asking what happens when nothing is configured, and quietly answering with the
+    defaults would make that case compare something else entirely.
+    """
+    v = args.get(key)
+    return default if v is None else tuple(v)
 
 
 DISPATCH: dict[str, Adapter] = {
@@ -186,6 +198,18 @@ DISPATCH: dict[str, Adapter] = {
     "storage.check_env_file": lambda p, a: env_check.check_env_file(
         p, required_keys=a.get("required_keys")
     ),
+    # A filename per line, the way net.parse_host_port does it. Absent glob
+    # arguments mean the shipped constants, so a case with no arguments compares
+    # the two ported glob lists themselves and not just the matcher.
+    "storage.classify": lambda t, a: [
+        stale._classify(
+            line,
+            globs_arg(a, "artifact_globs", stale.STALE_ARTIFACT_GLOBS),
+            globs_arg(a, "log_globs", stale.LEGACY_LOG_GLOBS),
+        )
+        for line in t.splitlines()
+        if line
+    ],
     "logsqueeze.lsof_has_writer": lambda t, a: gzip_inplace._lsof_has_writer(t),
     # config / audit / updater
     "config.read_paths_yaml": lambda p, a: config.read_paths_yaml(p),

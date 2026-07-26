@@ -346,6 +346,38 @@ var dispatch = map[string]adapter{
 		}
 		return storage.CheckEnvFile(p, required), nil
 	}),
+	// A filename per line, the way net.parse_host_port does it: _classify takes one
+	// name, and a case per filename would be dozens of one-line fixtures.
+	//
+	// Absent glob arguments mean the shipped lists on both sides, so a case that
+	// passes no arguments compares the two ported glob lists themselves rather than
+	// only the matcher underneath them. A present-but-empty list is honoured as
+	// empty -- that case is asking what an operator who configured nothing gets.
+	"storage.classify": text(func(t string, args map[string]any) (any, error) {
+		artifact, err := globsArg(args, "artifact_globs", storage.StaleArtifactGlobs())
+		if err != nil {
+			return nil, err
+		}
+		logs, err := globsArg(args, "log_globs", storage.LegacyLogGlobs())
+		if err != nil {
+			return nil, err
+		}
+		c := storage.NewClassifier(artifact, logs)
+		out := []any{}
+		for _, line := range pytext.SplitLines(t) {
+			if line == "" {
+				continue
+			}
+			// Python appends None for an unclassified name, which is what lets one
+			// fixture hold the misses alongside the hits.
+			if category, ok := c.Classify(line); ok {
+				out = append(out, category)
+			} else {
+				out = append(out, nil)
+			}
+		}
+		return out, nil
+	}),
 
 	// system
 	"system.read_uptime": pathFS(func(fsys fs.FS, name string, _ map[string]any) (any, error) {
@@ -535,6 +567,22 @@ func optStrListArg(args map[string]any, key string) ([]string, error) {
 		out = append(out, s)
 	}
 	return out, nil
+}
+
+// globsArg reads an optional glob-list argument, falling back to a shipped default.
+//
+// Absent and null both mean the default; a present-but-empty list is passed through
+// as empty, because a case that empties a glob list is asking what happens when
+// nothing is configured. py_oracle.globs_arg draws the same line.
+func globsArg(args map[string]any, key string, def []string) ([]string, error) {
+	globs, err := optStrListArg(args, key)
+	if err != nil {
+		return nil, err
+	}
+	if globs == nil {
+		return def, nil
+	}
+	return globs, nil
 }
 
 // strMapArg reads a string-to-string manifest argument, which today is an
