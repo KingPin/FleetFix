@@ -7,6 +7,7 @@ import (
 
 	"github.com/KingPin/FleetFix/v2/internal/fixture"
 	"github.com/KingPin/FleetFix/v2/internal/pytext"
+	"github.com/KingPin/FleetFix/v2/internal/pytime"
 	"github.com/google/go-cmp/cmp"
 )
 
@@ -314,4 +315,122 @@ func TestDecodeJSONLineRefusesTrailingData(t *testing.T) {
 			}
 		})
 	}
+}
+
+// wantStartedAt is v1's answer for each line of docker/started_at.txt, in file
+// order, as datetime.isoformat() -- or "" where _parse_iso reported None. Measured
+// by running v1's _parse_iso over the fixture, not derived from the ISO grammar.
+//
+// A line per case, the way procs.parse_stat_comm_and_ticks does it: _parse_iso
+// takes a single string, so a case per form would be thirty near-identical
+// fixtures and a divergence would name a file rather than a line.
+var wantStartedAt = []string{
+	"2026-07-26T15:04:05.123456+00:00", // what docker actually writes: RFC3339Nano
+	"2026-07-26T15:04:05+00:00",
+	"2026-07-26T15:04:05.500000+00:00",
+	"2026-07-26T15:04:05+00:00",
+	"2026-07-26T15:04:05.123456+05:30",
+	"2026-07-26T15:04:05-05:00",
+	"2026-07-26T15:04:05", // no offset, so a naive reading -- see pytime.Time
+	"2026-07-26T00:00:00",
+	"", // docker's zero value: never started
+	"",
+	"",                          // the bare date is the prefix too
+	"",                          // ... and the prefix is not parsed, so an impossible clock never gets read
+	"",                          // ... nor is the rest of the string looked at at all
+	"0001-01-02T00:00:00+00:00", // one day past the zero value is a real timestamp
+	"0002-01-01T00:00:00+00:00", // and so is one year past it
+	// str.replace rewrites every "Z", so a "Z" in the separator slot becomes
+	// "+00:00" mid-string and takes a string fromisoformat would have accepted.
+	"",
+	"",                          // a doubled Z, for the same reason
+	"",                          // ... and a Z followed by a real offset
+	"",                          // ... and a leading one
+	"",                          // fromisoformat wants an uppercase Z, and replace only rewrote uppercase
+	"2026-07-27T00:00:00+00:00", // hour 24 is tomorrow's midnight
+	"",                          // 2026 is not a leap year
+	"2026-07-26T15:04:05.123456",
+	"2026-07-26T15:04:05+00:00", // an ISO week date, which fromisoformat accepts
+	"2026-07-26T15:04:05+00:00", // ... as it does basic format
+	"2026-07-26T15:04:05",       // ... and a space for the separator
+	"2026-07-26T15:04:05.123456+00:00",
+	"",
+	"2026-07-26T15:04:05.123456+00:00", // nineteen fractional digits, six kept
+}
+
+func TestParseISOFixture(t *testing.T) {
+	lines := fixtureLines(t, "docker/started_at.txt")
+	if len(lines) != len(wantStartedAt) {
+		t.Fatalf("fixture has %d lines, the table has %d", len(lines), len(wantStartedAt))
+	}
+	for i, line := range lines {
+		got, ok := ParseISO(line)
+		if want := wantStartedAt[i]; want == "" {
+			if ok {
+				t.Errorf("line %d: ParseISO(%q) = %s, want no answer", i+1, line, got.ISOFormat())
+			}
+			continue
+		} else if !ok {
+			t.Errorf("line %d: ParseISO(%q) = no answer, want %s", i+1, line, want)
+		} else if s := got.ISOFormat(); s != want {
+			t.Errorf("line %d: ParseISO(%q) = %s, want %s", i+1, line, s, want)
+		}
+	}
+}
+
+// TestParseISOHasNoAnswerForAnEmptyString covers the one case the line-per-case
+// fixture cannot hold, because the adapter skips empty lines. v1 tests the value
+// for truth, so both the empty string and the None that comes out of a failed
+// docker inspect are "never started" -- which is why ParseISO takes a string and
+// leaves the *string distinction in InspectFields, where it still means something.
+//
+// A line of blanks is here too: it is truthy in Python, so it goes to
+// fromisoformat and is rejected there instead. Same answer, different route, and
+// a fixture cannot carry it without depending on trailing whitespace surviving
+// every editor between here and CI.
+func TestParseISOHasNoAnswerForAnEmptyString(t *testing.T) {
+	for _, in := range []string{"", " ", "\t"} {
+		if got, ok := ParseISO(in); ok {
+			t.Errorf("ParseISO(%q) = %s, want no answer", in, got.ISOFormat())
+		}
+	}
+}
+
+// fixtureLines splits a behaviour-table fixture the way the oracle adapter does:
+// Python's splitlines, empty lines skipped.
+func fixtureLines(tb testing.TB, rel string) []string {
+	tb.Helper()
+	out := []string{}
+	for _, line := range pytext.SplitLines(fixture.Text(tb, rel)) {
+		if line == "" {
+			continue
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
+func FuzzParseISO(f *testing.F) {
+	for _, line := range fixtureLines(f, "docker/started_at.txt") {
+		f.Add(line)
+	}
+	f.Fuzz(func(t *testing.T, s string) {
+		got, ok := ParseISO(s)
+		if !ok {
+			if got != (pytime.Time{}) {
+				t.Fatalf("ParseISO(%q) reported no answer but returned %+v", s, got)
+			}
+			return
+		}
+		// Nothing that starts with docker's zero value may come back as a time, and
+		// nothing may come back naive-with-an-offset. Both are the shapes a future
+		// edit to the two guards would take, and both would change what the
+		// restart-loop check says rather than merely being wrong.
+		if strings.HasPrefix(s, zeroTimePrefix) {
+			t.Fatalf("ParseISO(%q) = %s, but docker's zero value is never started", s, got.ISOFormat())
+		}
+		if !got.Aware && got.Offset != 0 {
+			t.Fatalf("ParseISO(%q) = %+v: a naive reading carries an offset", s, got)
+		}
+	})
 }

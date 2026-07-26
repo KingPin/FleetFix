@@ -16,6 +16,7 @@
 {"id": "docker.inspect_fields", "fn": "docker.parse_inspect_fields", "fixture": "docker/inspect_fields.txt", "sha256": "f0698e28718023da9c1b1be6362f3b2254c1dcc5e8497a1f63938546fda5ba9b", "input": "text", "args": {}}
 {"id": "docker.prune_reclaimed", "fn": "docker.parse_reclaimed_total", "fixture": "docker/prune_reclaimed.txt", "sha256": "e5e75de8bba0996fe75e82763d8a791f3b1aeb4e5c62d426b07a4412ce89b78d", "input": "text", "args": {}}
 {"id": "docker.ps_json_with_garbage", "fn": "docker.parse_ps_json_lines", "fixture": "docker/ps_json_with_garbage.txt", "sha256": "17ede0188eb8318ac1002d4c1497311295d0de706e04d71f688a30bb8853097d", "input": "text", "args": {}}
+{"id": "docker.started_at", "fn": "docker.parse_iso", "fixture": "docker/started_at.txt", "sha256": "b96ed2d6475997f16d45aed1182eea5c56be9c6f000882573e36436c28ca25ae", "input": "text", "args": {}}
 {"id": "docker.system_df_json", "fn": "docker.parse_system_df_json_lines", "fixture": "docker/system_df_json.txt", "sha256": "c37218498ee573127ae19dd9b599902c22beb3bd1e164aa54532a4b44789458f", "input": "text", "args": {}}
 {"id": "dotenv.duplicate_keys", "fn": "storage.check_env_file", "fixture": "dotenv/duplicate_keys.txt", "sha256": "937549df861559385db1585b952bb674f6eae5c57bce99687c441fdbde63f9cb", "input": "path", "args": {}}
 {"id": "dotenv.empty_value", "fn": "storage.check_env_file", "fixture": "dotenv/empty_value.txt", "sha256": "7819c04858487b8325a083235e0697f271991cb446086084807fec586dc27427", "input": "path", "args": {}}

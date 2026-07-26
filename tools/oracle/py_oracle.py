@@ -156,6 +156,15 @@ DISPATCH: dict[str, Adapter] = {
     "docker.parse_reclaimed_total": lambda t, a: docker_hygiene.parse_reclaimed_total(t),
     "docker.parse_ps_json_lines": lambda t, a: docker_dashboard.parse_ps_json_lines(t),
     "docker.parse_inspect_fields": lambda t, a: docker_dashboard.parse_inspect_fields(t),
+    # A line per case, as procs.parse_stat_comm_and_ticks does it: _parse_iso takes
+    # a single string, so a fixture holding one form per line reads as the behaviour
+    # table it is. Private in v1 -- its only caller is a few lines further down the
+    # same module -- and the harness compares behaviour, not visibility. plain()
+    # reduces each datetime with isoformat(), so the wire form is the string the Go
+    # side's ISOFormat has to reproduce character for character.
+    "docker.parse_iso": lambda t, a: [
+        docker_dashboard._parse_iso(line) for line in t.splitlines() if line
+    ],
     "docker.parse_system_df_json_lines": lambda t, a: docker_hygiene.parse_system_df_json_lines(t),
     # procs
     #

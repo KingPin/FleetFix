@@ -143,6 +143,25 @@ var dispatch = map[string]adapter{
 	"docker.parse_reclaimed_total": text(func(t string, _ map[string]any) (any, error) {
 		return docker.ParseReclaimedTotal(t), nil
 	}),
+	// A line per case, as procs.parse_stat_comm_and_ticks does it. The comparison is
+	// on the isoformat() string rather than the struct because that is what the
+	// Python side can produce -- plain() reduces a datetime that way -- and it is
+	// the stricter of the two: a Time whose fields matched but whose offset was
+	// spelled "+00:00:00" would still be a divergence, which is the point.
+	"docker.parse_iso": text(func(t string, _ map[string]any) (any, error) {
+		out := []any{}
+		for _, line := range pytext.SplitLines(t) {
+			if line == "" {
+				continue
+			}
+			if v, ok := docker.ParseISO(line); ok {
+				out = append(out, v.ISOFormat())
+			} else {
+				out = append(out, nil)
+			}
+		}
+		return out, nil
+	}),
 
 	// logsqueeze
 	"logsqueeze.lsof_has_writer": text(func(t string, _ map[string]any) (any, error) {

@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/KingPin/FleetFix/v2/internal/pytext"
+	"github.com/KingPin/FleetFix/v2/internal/pytime"
 )
 
 // InspectFields is what `docker inspect` gives back through the pipe-delimited
@@ -55,6 +56,38 @@ func ParseInspectFields(text string) InspectFields {
 		StartedAt:    &startedAt,
 		Status:       parts[3],
 	}
+}
+
+// zeroTimePrefix is the date half of Go's zero time.Time, which is what docker
+// writes into .State.StartedAt for a container that has never run. v1 treats the
+// whole prefix as "never started" rather than parsing it and comparing, so
+// "0001-01-01T99:99:99Z" is also never-started while "0001-01-02T00:00:00Z" is a
+// real timestamp in the year 1.
+const zeroTimePrefix = "0001-01-01"
+
+// ParseISO reads a container's start time, reporting ok=false where v1 reports
+// None: an empty string, docker's zero value, or anything datetime.fromisoformat
+// refuses.
+//
+// A string rather than the *string InspectFields carries, because v1 collapses the
+// distinction here -- _parse_iso(None) and _parse_iso("") are both None -- and the
+// pointer is only worth keeping where it still means something.
+//
+// The Z substitution is v1's, quirk included: str.replace rewrites *every* "Z",
+// not just a trailing one, so a "Z" used as the date/time separator turns
+// "2026-07-26Z15:04:05" into "2026-07-26+00:0015:04:05" and takes a string
+// fromisoformat would otherwise have accepted. Reproduced rather than corrected,
+// because a start time that reads as "never started" changes what the restart-loop
+// check says, and the port is not the place to decide that v1 was wrong.
+func ParseISO(value string) (pytime.Time, bool) {
+	if value == "" || strings.HasPrefix(value, zeroTimePrefix) {
+		return pytime.Time{}, false
+	}
+	t, err := pytime.FromISOFormat(strings.ReplaceAll(value, "Z", "+00:00"))
+	if err != nil {
+		return pytime.Time{}, false
+	}
+	return t, true
 }
 
 // ParsePSJSONLines reads `docker ps --format json`, one value per line, skipping
