@@ -995,6 +995,42 @@
       ]
     }
   ],
+  "float overflow": [
+    "map",
+    {
+      "a": [
+        "float",
+        "inf"
+      ]
+    }
+  ],
+  "float overflow negative": [
+    "map",
+    {
+      "a": [
+        "float",
+        "-inf"
+      ]
+    }
+  ],
+  "float underflow": [
+    "map",
+    {
+      "a": [
+        "float",
+        "0.0"
+      ]
+    }
+  ],
+  "float underflow negative": [
+    "map",
+    {
+      "a": [
+        "float",
+        "-0.0"
+      ]
+    }
+  ],
   "flow list value": [
     "map",
     {

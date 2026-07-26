@@ -665,7 +665,7 @@ func constructFloat(s string) (float64, error) {
 	case strings.Contains(v, ":"):
 		base := 1.0
 		for i, parts := 0, strings.Split(v, ":"); i < len(parts); i++ {
-			part, err := strconv.ParseFloat(parts[len(parts)-1-i], 64)
+			part, err := parseFloat(parts[len(parts)-1-i])
 			if err != nil {
 				return 0, fmt.Errorf("could not read %q as a sexagesimal float", s)
 			}
@@ -673,13 +673,7 @@ func constructFloat(s string) (float64, error) {
 			base *= 60
 		}
 	default:
-		// Go's ParseFloat accepts hexadecimal floats ("0x1p4") and Python's
-		// float() does not, so reject those rather than inventing a value for an
-		// explicitly tagged !!float that Python would have refused.
-		if strings.Contains(v, "x") {
-			return 0, fmt.Errorf("could not read %q as a float", s)
-		}
-		parsed, err := strconv.ParseFloat(v, 64)
+		parsed, err := parseFloat(v)
 		if err != nil {
 			return 0, fmt.Errorf("could not read %q as a float", s)
 		}
@@ -687,6 +681,30 @@ func constructFloat(s string) (float64, error) {
 	}
 	if neg {
 		f = -f
+	}
+	return f, nil
+}
+
+// parseFloat is Python's float() over the syntax PyYAML lets reach it.
+//
+// Two differences from ParseFloat alone, both measured rather than assumed:
+//
+//   - Out of range is not an error. Python's float("1.0e+400") is inf and
+//     float("1.0e-400") is 0.0, and ParseFloat returns exactly those values
+//     alongside ErrRange, so the value is kept and the error dropped. Treating
+//     ErrRange as fatal instead made one absurd exponent reject the whole
+//     document, which is how a single bad line in probes.yml silently reverted
+//     every other setting in it to a default.
+//   - Hexadecimal is an error. ParseFloat accepts "0x1p4" and Python's float()
+//     does not, so an explicitly tagged !!float 0x1p4 is refused rather than
+//     given a value Python would never have produced.
+func parseFloat(s string) (float64, error) {
+	if strings.Contains(s, "x") {
+		return 0, strconv.ErrSyntax
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil && !errors.Is(err, strconv.ErrRange) {
+		return 0, err
 	}
 	return f, nil
 }

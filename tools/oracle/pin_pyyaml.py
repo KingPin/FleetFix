@@ -97,6 +97,14 @@ CASES = {
     "float exponent": "a: 1e3\n",
     "float exponent dotted": "a: 1.0e3\n",
     "float leading dot": "a: .5\n",
+    # An exponent past the width of a double. float() saturates rather than
+    # raising -- inf going up, a signed zero going down -- so the document loads.
+    # Missing this rejected the whole file over one line, which for probes.yml
+    # meant every *other* setting in it silently reverted to a default.
+    "float overflow": "a: 1.0e+400\n",
+    "float overflow negative": "a: -1.0e+400\n",
+    "float underflow": "a: 1.0e-400\n",
+    "float underflow negative": "a: -1.0e-400\n",
     "inf": "a: .inf\n",
     "inf caps": "a: .Inf\n",
     "neg inf": "a: -.inf\n",
