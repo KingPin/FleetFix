@@ -75,13 +75,32 @@ def from_notifier(path: Path | None = None) -> UpdateStatus | None:
     )
 
 
-def from_apt(timeout_s: int = 10) -> UpdateStatus | None:
-    """Run `apt list --upgradable` and count the upgradable lines.
+def parse_apt_upgradable(text: str) -> tuple[int, int]:
+    """Count `(upgradable, security)` in `apt list --upgradable` output.
 
     Lines starting with "Listing..." or empty lines are skipped. Lines
     that contain `-security/` are counted as security updates (works on
     both Ubuntu and Debian's security pocket naming).
     """
+    upgradable = 0
+    security = 0
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("Listing"):
+            continue
+        upgradable += 1
+        # apt list --upgradable rows look like
+        #   pkg/jammy-security 1.2.3 amd64 [upgradable from: 1.2.2]
+        # i.e. the pocket is in the second slash-separated field and ends in
+        # "-security" before the next whitespace.
+        suite = line.split(" ", 1)[0]
+        if suite.endswith("-security") or "-security/" in line:
+            security += 1
+    return upgradable, security
+
+
+def from_apt(timeout_s: int = 10) -> UpdateStatus | None:
+    """Run `apt list --upgradable` and count the upgradable lines."""
     try:
         result = subprocess.run(
             ["apt", "list", "--upgradable"],
@@ -95,20 +114,7 @@ def from_apt(timeout_s: int = 10) -> UpdateStatus | None:
     if result.returncode != 0:
         return None
 
-    upgradable = 0
-    security = 0
-    for raw in result.stdout.splitlines():
-        line = raw.strip()
-        if not line or line.startswith("Listing"):
-            continue
-        upgradable += 1
-        # apt list --upgradable rows look like
-        #   pkg/jammy-security 1.2.3 amd64 [upgradable from: 1.2.2]
-        # i.e. the pocket is in the second slash-separated field and ends in
-        # "-security" before the next whitespace.
-        suite = line.split(" ", 1)[0]
-        if suite.endswith("-security") or "-security/" in line:
-            security += 1
+    upgradable, security = parse_apt_upgradable(result.stdout)
     return UpdateStatus(upgradable=upgradable, security=security, source="apt")
 
 
