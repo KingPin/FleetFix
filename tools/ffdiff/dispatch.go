@@ -152,6 +152,19 @@ var dispatch = map[string]adapter{
 		}
 		return v, nil
 	}),
+	"system.parse_notifier_text": text(func(t string, _ map[string]any) (any, error) {
+		// Python returns None when the file holds no recognisable count. A pair
+		// of zeroes would read as a host with nothing to install, which is the
+		// same file's other meaning.
+		if u, s, ok := system.ParseNotifierText(t); ok {
+			return []int64{u, s}, nil
+		}
+		return nil, nil
+	}),
+	"system.parse_apt_upgradable": text(func(t string, _ map[string]any) (any, error) {
+		u, s := system.ParseAptUpgradable(t)
+		return []int64{u, s}, nil
+	}),
 }
 
 // systemErr names the CPython exception v1 raises for a failure the system
