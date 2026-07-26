@@ -32,4 +32,7 @@ var dispatch = map[string]adapter{
 	"disk.parse_df": text(func(t string, _ map[string]any) (any, error) {
 		return disk.ParseDF(t), nil
 	}),
+	"disk.parse_df_inodes": text(func(t string, _ map[string]any) (any, error) {
+		return disk.ParseDFInodes(t), nil
+	}),
 }
