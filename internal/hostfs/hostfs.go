@@ -27,6 +27,8 @@ import (
 	"strings"
 	"syscall"
 	"unicode/utf8"
+
+	"github.com/KingPin/FleetFix/v2/internal/pytext"
 )
 
 // Default roots. Overridable through At, which is how a test drives a captured
@@ -77,12 +79,19 @@ func ReadFile(fsys fs.FS, name string) (string, error) {
 //
 // The common shape in sysfs: one value and a trailing newline, as in
 // class/net/eth0/operstate or class/thermal/thermal_zone0/type.
+//
+// Python's whitespace, not Go's: v1 spells this read_text().strip(), and str.strip()
+// also removes U+001C..U+001F, which strings.TrimSpace leaves in place. The value
+// reaches an operator's screen verbatim -- a link whose operstate came back as
+// "\x1cup" would be graded against the string "down" and pass while reading as
+// garbage -- so the two implementations must agree on the bytes, not merely on the
+// verdict.
 func ReadTrimmed(fsys fs.FS, name string) (string, error) {
 	s, err := ReadFile(fsys, name)
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(s), nil
+	return strings.TrimFunc(s, pytext.IsSpace), nil
 }
 
 // ReadInt reads a file holding a single integer, such as a thermal zone's
