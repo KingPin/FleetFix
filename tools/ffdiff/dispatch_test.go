@@ -90,6 +90,45 @@ func TestGhostAdapterKeepsPythonsFieldNames(t *testing.T) {
 	}
 }
 
+// TestRecordAdaptersKeepPythonsFieldNames does the same for the other ported
+// functions that return a list of dataclasses.
+func TestRecordAdaptersKeepPythonsFieldNames(t *testing.T) {
+	tests := []struct {
+		fn   string
+		text string
+		want string
+	}{
+		{
+			"services.parse_failed_units",
+			"kafka.service loaded failed failed Apache Kafka\n",
+			`[{"name":"kafka.service","load":"loaded","active":"failed","sub":"failed","description":"Apache Kafka"}]`,
+		},
+		{
+			"services.parse_blame",
+			"59.647s foo.service\n",
+			`[{"unit":"foo.service","duration_ms":59647}]`,
+		},
+		// Not a dataclass, but the shape still has to be Python's list of
+		// strings rather than an object keyed by unit.
+		{"services.parse_show_user", "User=appuser\n", `["appuser"]`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.fn, func(t *testing.T) {
+			v, err := dispatch[tt.fn].run(tt.text, nil)
+			if err != nil {
+				t.Fatalf("adapter returned %v", err)
+			}
+			got, err := json.Marshal(v)
+			if err != nil {
+				t.Fatalf("marshalling the adapter's value: %v", err)
+			}
+			if string(got) != tt.want {
+				t.Errorf("adapter marshalled to\n\t%s\nwant\n\t%s", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestSystemAdaptersReportAnUnreadableFileAsPythonDoes(t *testing.T) {
 	// The oracle hands each adapter a real path, so a missing one is the only
 	// failure reachable through the adapter rather than through the reader.

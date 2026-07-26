@@ -11,6 +11,7 @@ import (
 	"github.com/KingPin/FleetFix/v2/internal/core/disk"
 	"github.com/KingPin/FleetFix/v2/internal/core/logsqueeze"
 	"github.com/KingPin/FleetFix/v2/internal/core/network"
+	"github.com/KingPin/FleetFix/v2/internal/core/services"
 	"github.com/KingPin/FleetFix/v2/internal/core/system"
 )
 
@@ -137,6 +138,17 @@ var dispatch = map[string]adapter{
 			out[iface] = []int64{c.RxBytes, c.TxBytes}
 		}
 		return out, nil
+	}),
+
+	// services
+	"services.parse_failed_units": text(func(t string, _ map[string]any) (any, error) {
+		return services.ParseFailedUnits(t), nil
+	}),
+	"services.parse_show_user": text(func(t string, _ map[string]any) (any, error) {
+		return services.ParseShowUser(t), nil
+	}),
+	"services.parse_blame": text(func(t string, _ map[string]any) (any, error) {
+		return services.ParseBlame(t), nil
 	}),
 
 	// system
