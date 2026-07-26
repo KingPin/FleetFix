@@ -1,0 +1,25 @@
+# Cases where Go is allowed to disagree with Python.
+#
+# Empty, and the intent is that it stays that way. A divergence here is a
+# promise that the port will not reproduce a Python behaviour, so each entry
+# needs enough to be argued with later:
+#
+#   divergences:
+#     - id: ss.ipv6_scope_id          # a case id from testdata/cases.jsonl
+#       reason: >-                    # what differs and why Go is right
+#         Python drops the %eth0 scope suffix because split(":") takes the last
+#         field; the address it reports is not routable.
+#       issue: https://github.com/KingPin/FleetFix/issues/NN
+#
+# All three fields are required and `ffdiff compare` rejects the file without
+# them -- an id with no reason is a divergence someone stopped investigating,
+# and one with no issue is a divergence nobody is going to fix. Listing the same
+# id twice is also rejected, so a stale entry cannot be masked by a newer one.
+#
+# The file exists while empty on purpose: CI passes --known unconditionally, and
+# `loadKnownDivergences` errors on a path it cannot read. Deleting this file
+# fails the job loudly instead of quietly accepting nothing, which is what a
+# `[ -f ... ]` guard in the workflow would do.
+#
+# Deleted at M7 with the rest of the harness.
+divergences: []
