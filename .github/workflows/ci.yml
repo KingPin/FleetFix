@@ -36,11 +36,15 @@ jobs:
   lint:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
+          # Keyed on go.mod because there is no go.sum yet -- the binary is
+          # stdlib-only until M2 adds tview. setup-go needs a file to hash and
+          # warns on every job without this.
+          cache-dependency-path: go.mod
 
       - name: gofumpt
         run: |
@@ -55,7 +59,7 @@ jobs:
           fi
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v9
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
           args: --timeout=5m
@@ -77,11 +81,15 @@ jobs:
   test:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
+          # Keyed on go.mod because there is no go.sum yet -- the binary is
+          # stdlib-only until M2 adds tview. setup-go needs a file to hash and
+          # warns on every job without this.
+          cache-dependency-path: go.mod
 
       - name: go test -race
         run: go test -race -count=1 -coverprofile=coverage.out -covermode=atomic ./...
@@ -153,11 +161,15 @@ jobs:
     # target silently stops testing anything.
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
+          # Keyed on go.mod because there is no go.sum yet -- the binary is
+          # stdlib-only until M2 adds tview. setup-go needs a file to hash and
+          # warns on every job without this.
+          cache-dependency-path: go.mod
 
       - name: Fuzz every target briefly
         run: |
@@ -185,11 +197,15 @@ jobs:
       matrix:
         goarch: [amd64, arm64]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
+          # Keyed on go.mod because there is no go.sum yet -- the binary is
+          # stdlib-only until M2 adds tview. setup-go needs a file to hash and
+          # warns on every job without this.
+          cache-dependency-path: go.mod
 
       - name: Build
         env:
@@ -242,8 +258,8 @@ jobs:
     container:
       image: ${{ matrix.image }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false

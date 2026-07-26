@@ -44,15 +44,19 @@ jobs:
       matrix:
         goarch: [amd64, arm64]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
+          # Keyed on go.mod because there is no go.sum yet -- the binary is
+          # stdlib-only until M2 adds tview. setup-go needs a file to hash and
+          # warns on every job without this.
+          cache-dependency-path: go.mod
 
       # binfmt, so the arm64 binary's own --version can be asserted rather than
       # assumed. An arch mismatch that reaches a host bricks fleetfix on it.
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@v4
         if: matrix.goarch == 'arm64'
         with:
           platforms: arm64
@@ -192,7 +196,7 @@ jobs:
           done
           ls -l dist
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: fleetfix-${{ matrix.goarch }}
           path: |
@@ -207,7 +211,7 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
@@ -226,7 +230,7 @@ jobs:
           sha256sum -c fleetfix-linux-x86_64.sha256
           sha256sum -c fleetfix-linux-aarch64.sha256
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           # Never automatic. A human runs
           #   gh release edit <tag> --draft=false --latest
@@ -236,6 +240,11 @@ jobs:
           # An -rc tag stays a prerelease even once published, which keeps it off
           # /releases/latest while still being publicly downloadable for canaries.
           prerelease: ${{ contains(github.ref_name, '-rc') }}
+          # Explicit, because the action's default is GitHub's default, which is
+          # true. A draft cannot be marked latest, so this changes nothing today --
+          # it is here so that promoting a release to /releases/latest, the endpoint
+          # every v1.6.0 host polls, stays something a human does on purpose.
+          make_latest: false
           fail_on_unmatched_files: true
           files: |
             artifacts/fleetfix-linux-x86_64
