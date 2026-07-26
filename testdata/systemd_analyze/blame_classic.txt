@@ -1,0 +1,4 @@
+59.647s archlinux-keyring-wkd-sync.service
+ 5.569s NetworkManager-wait-online.service
+  559ms NetworkManager.service
+  1min 2.234s long-thing.service

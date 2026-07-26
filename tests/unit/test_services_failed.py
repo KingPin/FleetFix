@@ -8,6 +8,7 @@ from fleetfix.modules.services.failed import (
     parse_failed_units,
     parse_show_user,
 )
+from tests.support.fixtures import fixture
 
 # ---------------------------------------------------------------------------
 # Existing parse_failed_units tests (must remain passing)
@@ -15,10 +16,7 @@ from fleetfix.modules.services.failed import (
 
 
 def test_parse_failed_units_basic() -> None:
-    text = (
-        "myapp.service     loaded failed failed My Application Service\n"
-        "other.service     loaded failed failed Other Daemon\n"
-    )
+    text = fixture("systemctl/failed_two_units.txt")
     units = parse_failed_units(text)
     assert len(units) == 2
     assert units[0].name == "myapp.service"
@@ -29,7 +27,7 @@ def test_parse_failed_units_basic() -> None:
 
 
 def test_parse_failed_units_handles_multi_word_description() -> None:
-    text = "kafka.service loaded failed failed Apache Kafka brokers and topics\n"
+    text = fixture("systemctl/failed_multi_word_description.txt")
     units = parse_failed_units(text)
     assert len(units) == 1
     assert units[0].description == "Apache Kafka brokers and topics"
@@ -40,7 +38,7 @@ def test_parse_failed_units_empty_input() -> None:
 
 
 def test_parse_failed_units_skips_short_rows() -> None:
-    text = "too few cols\n"
+    text = fixture("systemctl/failed_short_row.txt")
     assert parse_failed_units(text) == []
 
 
@@ -51,7 +49,7 @@ def test_parse_failed_units_skips_short_rows() -> None:
 
 def test_parse_show_user_basic() -> None:
     """Multi-block output with three units; empty User= defaults to root."""
-    text = "User=root\n\nUser=appuser\n\nUser=\n"
+    text = fixture("systemctl/show_user_three_blocks.txt")
     result = parse_show_user(text)
     assert result == ["root", "appuser", "root"]
 
@@ -63,13 +61,13 @@ def test_parse_show_user_empty() -> None:
 
 def test_parse_show_user_block_missing_user_defaults_to_root() -> None:
     """Block with content but no `User=` line is defaulted to root."""
-    text = "User=root\n\nOther=value\n\nUser=appuser\n"
+    text = fixture("systemctl/show_user_missing_key.txt")
     assert parse_show_user(text) == ["root", "root", "appuser"]
 
 
 def test_parse_show_user_skips_trailing_empty_block() -> None:
     """Trailing `\\n\\n` should not produce a phantom entry."""
-    text = "User=root\n\nUser=appuser\n\n"
+    text = fixture("systemctl/show_user_trailing_blank.txt")
     assert parse_show_user(text) == ["root", "appuser"]
 
 
@@ -78,14 +76,10 @@ def test_parse_show_user_skips_trailing_empty_block() -> None:
 # ---------------------------------------------------------------------------
 
 # Fixture: three units returned by the initial list-units call
-_LIST_STDOUT = (
-    "alpha.service  loaded failed failed Alpha Service\n"
-    "beta.service   loaded failed failed Beta Service\n"
-    "gamma.service  loaded failed failed Gamma Service\n"
-)
+_LIST_STDOUT = fixture("systemctl/failed_three_units.txt")
 
 # Bulk show output: alpha=root, beta=appuser, gamma= (empty → root)
-_SHOW_STDOUT = "User=root\n\nUser=appuser\n\nUser=\n"
+_SHOW_STDOUT = fixture("systemctl/show_user_three_blocks.txt")
 
 
 def _make_run(list_stdout: str, show_stdout: str, show_rc: int = 0) -> MagicMock:
@@ -160,7 +154,7 @@ def test_list_failed_units_show_count_mismatch_returns_empty() -> None:
     from fleetfix.modules.services.failed import list_failed_units
 
     # Only 2 blocks in the show output instead of 3
-    short_show = "User=root\n\nUser=appuser\n"
+    short_show = fixture("systemctl/show_user_two_blocks.txt")
     mock_run = _make_run(_LIST_STDOUT, short_show)
     with patch("fleetfix.modules.services.failed.subprocess.run", mock_run):
         units = list_failed_units(target_user="appuser")

@@ -1,0 +1,2 @@
+myapp.service     loaded failed failed My Application Service
+other.service     loaded failed failed Other Daemon

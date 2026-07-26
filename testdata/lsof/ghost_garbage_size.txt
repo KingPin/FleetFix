@@ -1,0 +1,7 @@
+p1
+cbad
+u0
+f0
+soops
+L0
+n/tmp/x

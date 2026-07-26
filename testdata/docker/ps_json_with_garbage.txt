@@ -1,0 +1,4 @@
+{"ID":"abc","Names":"web","Image":"nginx","State":"running","Status":"Up 2 hours","Ports":"80/tcp"}
+
+not json
+{"ID":"def","Names":"db","Image":"pg","State":"exited","Status":"Exited (0) 1 hour ago","Ports":""}

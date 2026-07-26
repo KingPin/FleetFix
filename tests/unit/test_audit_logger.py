@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from fleetfix.audit.logger import AuditLogger, Operator, _parse_ssh_source_ip, read_recent
+from tests.support.fixtures import fixture
 
 
 @pytest.fixture
@@ -112,7 +113,7 @@ def test_read_recent_returns_parsed_records_in_order(logger: AuditLogger) -> Non
 
 def test_read_recent_skips_malformed_lines(tmp_path: Path) -> None:
     path = tmp_path / "audit.log"
-    path.write_text('{"ok": true}\nnot-json\n{"ok": false}\n')
+    path.write_text(fixture("audit/malformed_lines.jsonl"))
     out = read_recent(path)
     assert [r["ok"] for r in out] == [True, False]
 

@@ -1,0 +1,4 @@
+Deleted Images:
+deleted: sha256:abc
+
+Total reclaimed space: 123.4MB

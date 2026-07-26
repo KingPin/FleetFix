@@ -1,0 +1,6 @@
+PING flaky.internal (10.0.0.5) 56(84) bytes of data.
+64 bytes from 10.0.0.5: icmp_seq=1 ttl=64 time=2.40 ms
+
+--- flaky.internal ping statistics ---
+5 packets transmitted, 2 received, 60% packet loss, time 4096ms
+rtt min/avg/max/mdev = 2.401/3.118/3.835/0.717 ms

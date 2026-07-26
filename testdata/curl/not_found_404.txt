@@ -1,0 +1,8 @@
+FLEETFIX_CURL_PROBE
+http_code=404
+time_namelookup=0.000100
+time_connect=0.001000
+time_appconnect=0.000000
+time_starttransfer=0.005000
+time_total=0.006000
+size_download=120

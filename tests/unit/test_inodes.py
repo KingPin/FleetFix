@@ -8,18 +8,9 @@ from fleetfix.modules.disk.inodes import (
     alerts,
     parse_df_inodes,
 )
+from tests.support.fixtures import fixture
 
-_FIXTURE = """\
-Filesystem       Inodes   IUsed   IFree IUse% Mounted on
-udev            2034567     500 2034067    1% /dev
-tmpfs           2046789     800 2045989    1% /run
-/dev/sda1      62500000 5800000 56700000   10% /
-/dev/sdb1      31250000 28000000 3250000   90% /var
-/dev/sdc1      15625000 15000000  625000   96% /var/lib/docker
-tmpfs           2046789       1 2046788    1% /dev/shm
-/dev/sda2             0       0       0    -  /boot/efi
-overlay          123456    1000  122456    1% /var/lib/docker/overlay2/abc
-"""
+_FIXTURE = fixture("df/inodes_mixed.txt")
 
 
 def test_parse_skips_pseudo_filesystems() -> None:
@@ -68,10 +59,7 @@ def test_is_warn_and_is_critical_flags() -> None:
 
 def test_parse_handles_mount_with_spaces() -> None:
     # `df -P` keeps the mount point on one line; we split(None, 5).
-    text = (
-        "Filesystem       Inodes   IUsed   IFree IUse% Mounted on\n"
-        "/dev/sdd1       1000000  500000  500000   50% /mnt/with space\n"
-    )
+    text = fixture("df/inodes_mount_with_spaces.txt")
     rows = parse_df_inodes(text)
     assert len(rows) == 1
     assert rows[0].mount == "/mnt/with space"
@@ -79,9 +67,6 @@ def test_parse_handles_mount_with_spaces() -> None:
 
 def test_parse_handles_missing_iuse_percent() -> None:
     # Some df builds emit "-" for the percentage on dynamic filesystems.
-    text = (
-        "Filesystem       Inodes   IUsed   IFree IUse% Mounted on\n"
-        "/dev/sde1       1000000  300000  700000   - /mnt/x\n"
-    )
+    text = fixture("df/inodes_missing_iuse.txt")
     rows = parse_df_inodes(text)
     assert rows[0].used_pct == 30  # computed from used/total

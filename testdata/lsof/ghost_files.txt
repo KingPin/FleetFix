@@ -1,0 +1,18 @@
+p812
+csshd
+uroot
+f3
+s4096
+L1
+n/var/log/auth.log
+f4
+s12345678
+L0
+n/var/log/journal/abc/system.journal (deleted)
+p1234
+cpostgres
+upostgres
+f9
+s99999
+L0
+n/var/lib/postgresql/14/main/pg_log.deleted

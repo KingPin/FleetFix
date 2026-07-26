@@ -15,17 +15,11 @@ from fleetfix.modules.system.updates import (
     get_update_status,
     parse_notifier_text,
 )
+from tests.support.fixtures import fixture
 
-_NOTIFIER_REGULAR = """\
+_NOTIFIER_REGULAR = fixture("update_notifier/with_security.txt")
 
-14 packages can be updated.
-8 updates are security updates.
-
-"""
-
-_NOTIFIER_NO_SECURITY = """\
-3 packages can be updated.
-"""
+_NOTIFIER_NO_SECURITY = fixture("update_notifier/no_security.txt")
 
 
 def test_parse_notifier_regular() -> None:
@@ -39,7 +33,7 @@ def test_parse_notifier_without_security_line() -> None:
 
 
 def test_parse_notifier_unrecognised() -> None:
-    assert parse_notifier_text("nothing to see here\n") is None
+    assert parse_notifier_text(fixture("update_notifier/unrecognised.txt")) is None
 
 
 def test_from_notifier_reads_existing_file(tmp_path: Path) -> None:
@@ -57,12 +51,7 @@ def test_from_notifier_missing_file(tmp_path: Path) -> None:
 
 
 def test_from_apt_counts_lines(monkeypatch: pytest.MonkeyPatch) -> None:
-    sample = (
-        "Listing... Done\n"
-        "curl/jammy-updates 8.0.1-1 amd64 [upgradable from: 8.0.0-1]\n"
-        "openssl/jammy-security 3.0.2-0ubuntu1.10 amd64 [upgradable from: 3.0.2-0ubuntu1.9]\n"
-        "vim/jammy-updates 9.0-1 amd64 [upgradable from: 8.2-1]\n"
-    )
+    sample = fixture("apt/upgradable_three.txt")
 
     def fake_run(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess:
         return subprocess.CompletedProcess(args=args, returncode=0, stdout=sample)
@@ -116,7 +105,7 @@ def test_get_update_status_falls_back_to_apt(
         return subprocess.CompletedProcess(
             args=args,
             returncode=0,
-            stdout="Listing... Done\nfoo/x 1.0 amd64 [upgradable from: 0.9]\n",
+            stdout=fixture("apt/upgradable_one.txt"),
         )
 
     monkeypatch.setattr(updates.subprocess, "run", fake_run)

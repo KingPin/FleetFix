@@ -16,76 +16,29 @@ from fleetfix.modules.network.traceroute import (
     timeout_for,
     trace,
 )
+from tests.support.fixtures import fixture
 
-_TRACEROUTE_REACHED = """\
-traceroute to 8.8.8.8 (8.8.8.8), 15 hops max, 60 byte packets
- 1  192.168.1.1  0.687 ms
- 2  10.240.178.229  6.968 ms
- 3  8.8.8.8  11.029 ms
-"""
+_TRACEROUTE_REACHED = fixture("traceroute/reached.txt")
 
-_TRACEROUTE_STALLED = """\
-traceroute to 192.0.2.1 (192.0.2.1), 6 hops max, 60 byte packets
- 1  192.168.1.1  0.717 ms
- 2  10.240.178.229  12.167 ms
- 3  67.59.229.86  9.828 ms
- 4  * * *
- 5  * * *
- 6  * * *
-"""
+_TRACEROUTE_STALLED = fixture("traceroute/stalled.txt")
 
 # Hop 2 is load balanced: two responders, one probe lost.
-_TRACEROUTE_MULTI_PROBE = """\
-traceroute to 1.1.1.1 (1.1.1.1), 15 hops max, 60 byte packets
- 1  192.168.1.1  0.687 ms  0.501 ms  0.442 ms
- 2  64.15.5.142  11.248 ms  64.15.1.175  12.449 ms  *
- 3  1.1.1.1  13.001 ms  13.100 ms  13.200 ms
-"""
+_TRACEROUTE_MULTI_PROBE = fixture("traceroute/multi_probe.txt")
 
 # A firewall answering *for* the destination — address matches, but nothing arrived.
-_TRACEROUTE_ADMIN_PROHIBITED = """\
-traceroute to 203.0.113.9 (203.0.113.9), 15 hops max, 60 byte packets
- 1  192.168.1.1  0.687 ms
- 2  10.240.178.229  6.968 ms
- 3  203.0.113.9  11.029 ms !X
-"""
+_TRACEROUTE_ADMIN_PROHIBITED = fixture("traceroute/admin_prohibited.txt")
 
-_TRACEROUTE_UNKNOWN_HOST = "traceroute: unknown host nope.invalid\n"
+_TRACEROUTE_UNKNOWN_HOST = fixture("traceroute/unknown_host.txt")
 
 # The tracepath blocks below are literal captures from a real host.
-_TRACEPATH_REACHED = """\
- 1?: [LOCALHOST]                      pmtu 1500
- 1:  192.168.1.1                                           0.789ms reached
- 1:  192.168.1.1                                           0.447ms reached
-     Resume: pmtu 1500 hops 1 back 1
-"""
+_TRACEPATH_REACHED = fixture("tracepath/reached.txt")
 
-_TRACEPATH_TOO_MANY_HOPS = """\
- 1?: [LOCALHOST]                      pmtu 1500
- 1:  192.168.1.1                                           0.727ms
- 1:  192.168.1.1                                           0.418ms
- 2:  10.240.178.229                                       11.988ms
- 3:  67.59.229.86                                         10.429ms
- 4:  67.83.221.166                                        12.940ms
- 5:  no reply
- 6:  no reply
- 7:  no reply
- 8:  no reply
-     Too many hops: pmtu 1500
-     Resume: pmtu 1500
-"""
+_TRACEPATH_TOO_MANY_HOPS = fixture("tracepath/too_many_hops.txt")
 
 # "asymm N" annotations trail the RTT and are not responders.
-_TRACEPATH_ASYMM = """\
- 1?: [LOCALHOST]                      pmtu 1500
- 1:  192.168.1.1                                           0.531ms
- 2:  65.19.100.4                                          33.087ms asymm  7
- 3:  162.158.61.101                                       26.459ms asymm  9
-     Too many hops: pmtu 1500
-     Resume: pmtu 1500
-"""
+_TRACEPATH_ASYMM = fixture("tracepath/asymm.txt")
 
-_TRACEPATH_UNKNOWN_HOST = "tracepath: nope.invalid: Name or service not known\n"
+_TRACEPATH_UNKNOWN_HOST = fixture("tracepath/unknown_host.txt")
 
 
 def test_traceroute_reached() -> None:

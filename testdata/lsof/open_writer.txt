@@ -1,0 +1,5 @@
+p123
+crsyslogd
+f3
+aw
+n/var/log/syslog

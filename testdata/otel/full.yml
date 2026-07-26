@@ -1,0 +1,5 @@
+endpoint: https://ingest.example.com:443
+service_name: fleetfix-test
+headers:
+  x-otlp-token: abc
+insecure: false

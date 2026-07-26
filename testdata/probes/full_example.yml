@@ -1,0 +1,16 @@
+ping:
+  targets: [10.0.0.1, 8.8.8.8]
+  count: 5
+  interval_s: 0.3
+dns:
+  names: [db.corp.internal, github.com]
+http:
+  urls: [https://api.corp.internal/health]
+tcp:
+  targets: ["db.corp.internal:5432", "https://api.corp.internal"]
+traceroute:
+  max_hops: 20
+ladder:
+  internet_target: 9.9.9.9
+  dns_name: db.corp.internal
+  https_url: https://api.corp.internal/health

@@ -1,0 +1,5 @@
+search corp.internal internal
+nameserver 10.0.0.53
+nameserver 10.0.1.53
+nameserver 1.1.1.1
+options timeout:2 attempts:3

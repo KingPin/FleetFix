@@ -9,43 +9,15 @@ import pytest
 
 from fleetfix.modules.network import ping
 from fleetfix.modules.network.ping import parse_ping_output, run_ping
+from tests.support.fixtures import fixture
 
-_HEALTHY_UBUNTU = """\
-PING 8.8.8.8 (8.8.8.8) 56(84) bytes of data.
-64 bytes from 8.8.8.8: icmp_seq=1 ttl=115 time=12.4 ms
-64 bytes from 8.8.8.8: icmp_seq=2 ttl=115 time=11.9 ms
-64 bytes from 8.8.8.8: icmp_seq=3 ttl=115 time=12.1 ms
+_HEALTHY_UBUNTU = fixture("ping/ubuntu_no_loss.txt")
 
---- 8.8.8.8 ping statistics ---
-3 packets transmitted, 3 received, 0% packet loss, time 412ms
-rtt min/avg/max/mdev = 11.913/12.144/12.396/0.198 ms
-"""
+_PARTIAL_LOSS = fixture("ping/partial_loss.txt")
 
-_PARTIAL_LOSS = """\
-PING flaky.internal (10.0.0.5) 56(84) bytes of data.
-64 bytes from 10.0.0.5: icmp_seq=1 ttl=64 time=2.40 ms
+_TOTAL_LOSS = fixture("ping/total_loss.txt")
 
---- flaky.internal ping statistics ---
-5 packets transmitted, 2 received, 60% packet loss, time 4096ms
-rtt min/avg/max/mdev = 2.401/3.118/3.835/0.717 ms
-"""
-
-_TOTAL_LOSS = """\
-PING unreachable (10.99.0.1) 56(84) bytes of data.
-
---- unreachable ping statistics ---
-4 packets transmitted, 0 received, 100% packet loss, time 3076ms
-"""
-
-_DEBIAN_WITH_ERRORS = """\
-PING router (10.0.0.1) 56(84) bytes of data.
-From 10.0.0.7 icmp_seq=1 Destination Host Unreachable
-64 bytes from 10.0.0.1: icmp_seq=2 ttl=64 time=0.901 ms
-
---- router ping statistics ---
-4 packets transmitted, 3 received, +1 errors, 25% packet loss, time 3050ms
-rtt min/avg/max/mdev = 0.901/1.500/2.250/0.580 ms
-"""
+_DEBIAN_WITH_ERRORS = fixture("ping/debian_plus_errors.txt")
 
 
 def test_parse_healthy_summary() -> None:
@@ -86,7 +58,7 @@ def test_parse_debian_with_errors_field() -> None:
 
 
 def test_parse_unrecognised_output_returns_none() -> None:
-    assert parse_ping_output("x", "nothing useful here\n") is None
+    assert parse_ping_output("x", fixture("ping/unrecognised.txt")) is None
 
 
 def test_parse_keeps_the_raw_output() -> None:

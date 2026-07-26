@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from fleetfix.config import InspectTarget, read_paths_yaml, resolve_inspect_target
+from tests.support.fixtures import fixture
 
 
 @pytest.fixture
@@ -66,18 +67,18 @@ def test_read_paths_yaml_missing_file_returns_empty(tmp_path: Path) -> None:
 
 def test_read_paths_yaml_parses_mapping(tmp_path: Path) -> None:
     p = tmp_path / "paths.yml"
-    p.write_text("target_user: appuser\nstale_age_days: 30\n", encoding="utf-8")
+    p.write_text(fixture("paths/target_user.yml"), encoding="utf-8")
     out = read_paths_yaml(p)
     assert out == {"target_user": "appuser", "stale_age_days": 30}
 
 
 def test_read_paths_yaml_non_mapping_returns_empty(tmp_path: Path) -> None:
     p = tmp_path / "paths.yml"
-    p.write_text("- just\n- a\n- list\n", encoding="utf-8")
+    p.write_text(fixture("paths/top_level_list.yml"), encoding="utf-8")
     assert read_paths_yaml(p) == {}
 
 
 def test_read_paths_yaml_malformed_returns_empty(tmp_path: Path) -> None:
     p = tmp_path / "paths.yml"
-    p.write_text("target_user: [unterminated\n", encoding="utf-8")
+    p.write_text(fixture("paths/malformed.yml"), encoding="utf-8")
     assert read_paths_yaml(p) == {}

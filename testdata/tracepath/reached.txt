@@ -1,0 +1,4 @@
+ 1?: [LOCALHOST]                      pmtu 1500
+ 1:  192.168.1.1                                           0.789ms reached
+ 1:  192.168.1.1                                           0.447ms reached
+     Resume: pmtu 1500 hops 1 back 1
