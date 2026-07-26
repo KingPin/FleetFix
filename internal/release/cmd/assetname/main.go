@@ -22,8 +22,10 @@ func main() {
 	all := flag.Bool("all", false, "print every published architecture as GOARCH<tab>name")
 	flag.Usage = func() {
 		// Ignored deliberately, and only here: a failed write of usage text leaves
-		// nothing to recover. Writes that carry the check --json contract are
-		// checked, which is why errcheck stays strict on fmt.Fprint* globally.
+		// nothing to recover, since reporting it would need the stream that just
+		// refused a write. The writes carrying this tool's actual output, below,
+		// stay checked: a CI step compares them against a literal asset name, and
+		// an empty answer must fail rather than pass.
 		_, _ = fmt.Fprint(flag.CommandLine.Output(),
 			"usage: assetname [-checksum] <goarch>\n       assetname -all\n")
 		flag.PrintDefaults()
