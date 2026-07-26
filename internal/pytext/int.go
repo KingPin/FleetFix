@@ -2,6 +2,7 @@ package pytext
 
 import (
 	"errors"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode"
@@ -32,19 +33,23 @@ var ErrRange = errors.New("pytext: integer literal out of int64 range")
 //     base 0, where it would also start reading "0x10" as hex, which Python's
 //     base-10 int() rejects.
 //   - A leading "+" is accepted by both.
+//   - Non-ASCII decimal digits. Python accepts every Unicode Nd code point and
+//     mixes scripts freely, so int("٣3") is 33 and int("١_٢") is 12, while
+//     int("³") and int("½") are ValueErrors -- No and Nl are not Nd. Measured,
+//     including the mixing.
 //
-// Two deliberate departures from Python, to be recorded in known_divergences.yaml
-// when the harness first reaches them rather than papered over:
+// Two departures remain, to be recorded in known_divergences.yaml if the harness
+// ever reaches them rather than papered over:
 //
-//   - Non-ASCII decimal digits. Python accepts all 760 Unicode Nd code points, so
-//     int("١٢٣") is 123. This accepts ASCII only. Reaching a parser needs a
-//     well-formed multi-byte digit sequence in a position a numeric field is read
-//     from, which no captured output contains and byte-level fuzzing will
-//     essentially never construct.
 //   - Magnitude. Python integers are arbitrary precision; these results have to
 //     land in an int64 field. A literal above 2^63-1 returns ErrRange where Python
 //     returns a value, so a row Python keeps is one this drops. No block count,
 //     inode count or byte total from a real tool comes close.
+//   - Unicode version. Go's tables are 15.0.0 and CPython 3.14's are 16.0.0, so
+//     the eight Nd blocks Unicode 16 added -- Garay, Sunuwar, Kirat Rai, Ol Onal,
+//     two Myanmar, Gurung Khema, and the outlined digits -- are digits to int()
+//     and syntax errors here. This one expires on its own; a test names the eight
+//     and fails when Go catches up.
 func Int(s string) (int64, error) {
 	// TrimFunc with unicode.IsSpace rather than pytext.IsSpace: this is the one
 	// place the two sets must not be the same.
@@ -64,54 +69,83 @@ func Int(s string) (int64, error) {
 		return 0, ErrSyntax
 	}
 
-	// Underscores are stripped only after being validated in place, because their
-	// legality is positional: "1_0" is 10, while "_10", "10_" and "1__0" are all
-	// ValueErrors.
-	if strings.Contains(body, "_") {
-		clean, ok := stripUnderscores(body)
+	// One pass that both validates the underscores and folds every digit down to
+	// ASCII, so ParseInt below sees a plain [0-9]+ whatever script the input was
+	// written in. Underscore legality is positional -- "1_0" is 10, while "_10",
+	// "10_" and "1__0" are all ValueErrors -- which is why it is tracked here
+	// rather than by stripping them first and checking the result.
+	var b strings.Builder
+	b.Grow(len(body))
+	prevUnderscore, seenDigit := false, false
+	for _, r := range body {
+		if r == '_' {
+			if !seenDigit || prevUnderscore {
+				return 0, ErrSyntax
+			}
+			prevUnderscore = true
+			continue
+		}
+		v, ok := digitValue(r)
 		if !ok {
 			return 0, ErrSyntax
 		}
-		body = clean
+		prevUnderscore, seenDigit = false, true
+		b.WriteByte(byte('0' + v))
 	}
-	for i := range len(body) {
-		if body[i] < '0' || body[i] > '9' {
-			return 0, ErrSyntax
-		}
+	if prevUnderscore {
+		return 0, ErrSyntax
 	}
 
+	digits := b.String()
 	if neg {
-		body = "-" + body
+		digits = "-" + digits
 	}
-	n, err := strconv.ParseInt(body, 10, 64)
+	n, err := strconv.ParseInt(digits, 10, 64)
 	if err != nil {
-		// body is already known to match [-]?[0-9]+, so magnitude is the only
+		// digits is already known to match [-]?[0-9]+, so magnitude is the only
 		// failure ParseInt has left to report.
 		return 0, ErrRange
 	}
 	return n, nil
 }
 
-// stripUnderscores removes separators, reporting false if any sits somewhere
-// Python does not allow: at either end, or next to another underscore.
-func stripUnderscores(body string) (string, bool) {
-	if body[0] == '_' || body[len(body)-1] == '_' {
-		return "", false
+// digitValue returns the decimal value of r, for every code point Python's int()
+// treats as a digit: category Nd, not the wider "looks numeric" set that also
+// holds ³ (No) and Ⅻ (Nl).
+//
+// The value is derived from the position within the Nd range rather than from a
+// table of 760 code points. Unicode lays every Nd block out as ten ascending
+// code points starting at that script's zero, so the offset within the block is
+// the value -- taken modulo ten because Go merges blocks that happen to be
+// adjacent, as it does for the five mathematical alphanumeric sets at U+1D7CE.
+// A test walks all of Nd and checks the answer against the block table generated
+// from CPython's unicodedata, so a merge this reasoning did not anticipate fails
+// loudly rather than returning a plausible wrong digit.
+func digitValue(r rune) (int, bool) {
+	if r >= '0' && r <= '9' {
+		return int(r - '0'), true
 	}
-	var b strings.Builder
-	b.Grow(len(body))
-	prevUnderscore := false
-	for i := range len(body) {
-		c := body[i]
-		if c == '_' {
-			if prevUnderscore {
-				return "", false
-			}
-			prevUnderscore = true
-			continue
+	lo, ok := ndBlockStart(r)
+	if !ok {
+		return 0, false
+	}
+	return int((r - lo) % 10), true
+}
+
+// ndBlockStart returns the first code point of the unicode.Nd range holding r.
+func ndBlockStart(r rune) (rune, bool) {
+	if r <= 0xFFFF {
+		rs := unicode.Nd.R16
+		i := sort.Search(len(rs), func(i int) bool { return rune(rs[i].Hi) >= r })
+		if i < len(rs) && rune(rs[i].Lo) <= r && rs[i].Stride == 1 {
+			return rune(rs[i].Lo), true
 		}
-		prevUnderscore = false
-		b.WriteByte(c)
+		return 0, false
 	}
-	return b.String(), true
+	rs := unicode.Nd.R32
+	i := sort.Search(len(rs), func(i int) bool { return rune(rs[i].Hi) >= r })
+	if i < len(rs) && rune(rs[i].Lo) <= r && rs[i].Stride == 1 {
+		return rune(rs[i].Lo), true
+	}
+	return 0, false
 }

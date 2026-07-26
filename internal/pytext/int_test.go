@@ -50,8 +50,20 @@ func TestInt(t *testing.T) {
 		// Documented departure: Python returns a value here.
 		{name: "above int64", in: "9223372036854775808", err: ErrRange},
 		{name: "below int64", in: "-9223372036854775809", err: ErrRange},
-		// Documented departure: Python reads Arabic-Indic digits as 123.
-		{name: "non-ascii decimal digits", in: "١٢٣", err: ErrSyntax},
+
+		// Nd, in every spelling Python accepts. Pinned by running int() on each.
+		{name: "arabic-indic digits", in: "١٢٣", want: 123},
+		{name: "scripts mixed within one literal", in: "٣3", want: 33},
+		{name: "underscore between non-ascii digits", in: "١_٢", want: 12},
+		{name: "extended arabic-indic", in: "۵", want: 5},
+		{name: "mathematical double-struck", in: "𝟝", want: 5},
+		{name: "fullwidth", in: "１２３", want: 123},
+		{name: "thai", in: "๓", want: 3},
+		{name: "signed non-ascii", in: "-٣", want: -3},
+		{name: "non-ascii with surrounding space", in: " ٣ ", want: 3},
+		// No and Nl look numeric and are not digits to int().
+		{name: "vulgar fraction is not a digit", in: "½", err: ErrSyntax},
+		{name: "roman numeral is not a digit", in: "Ⅻ", err: ErrSyntax},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
