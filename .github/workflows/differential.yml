@@ -80,11 +80,10 @@ jobs:
       - name: Go oracle
         run: go run ./tools/ffdiff oracle --out go.jsonl
 
-      # No --require-complete yet: most of the manifest has no Go adapter, and
-      # those cases are counted as unimplemented rather than failed so the
-      # report stays readable while the port fills in. The flag turns them into
-      # failures and goes on this command with the last parser -- that is the
-      # M2 exit gate.
+      # --require-complete is on now that every case in the manifest has a Go
+      # adapter: an unimplemented case is a failure rather than a line in the
+      # report. Without it, deleting an adapter -- or adding a case and
+      # forgetting the Go side -- reads as a passing run.
       #
       # --known is passed unconditionally against a file that is checked in
       # holding an empty list. `ffdiff compare` errors on a --known path it
@@ -96,6 +95,7 @@ jobs:
             --py py.jsonl \
             --go go.jsonl \
             --known differential/known_divergences.yaml \
+            --require-complete \
             --out report.json
 
       # Uploaded on failure too -- especially on failure. The summary names the
