@@ -75,6 +75,9 @@ var dispatch = map[string]adapter{
 	"net.parse_tracepath_output": text(func(t string, args map[string]any) (any, error) {
 		return traceArgs(args, t, network.ParseTracepathOutput)
 	}),
+	"net.parse_ss_output": text(func(t string, _ map[string]any) (any, error) {
+		return network.ParseSSOutput(t), nil
+	}),
 }
 
 // traceArgs reads the two arguments both trace parsers take.
