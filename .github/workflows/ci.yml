@@ -98,7 +98,12 @@ jobs:
       # lets the TUI's verbosity mask a thinly-tested parser, which is exactly the
       # package where a gap costs a wrong verdict on someone's host.
       #
-      # A floor for a package that does not exist yet is reported as skipped rather
+      # A floor entry names a subtree and is applied to every package in it
+      # *individually*, never to their aggregate. Aggregating is the same masking
+      # bug one directory down: internal/core=85 over eight combined subpackages
+      # would let a well-tested parser carry an untested one.
+      #
+      # A floor whose subtree has no packages yet is reported as skipped rather
       # than passing quietly -- a silently-unenforced floor is worse than none,
       # because it reads as covered.
       - name: Coverage floors
@@ -106,6 +111,7 @@ jobs:
           set -eu
           floors="
           internal/core=85
+          internal/pytext=95
           internal/audit=90
           internal/updater=85
           internal/cli=90
@@ -115,42 +121,53 @@ jobs:
           internal/release=95
           internal/version=90
           "
+          # One pass over the profile, weighted over statements, grouped by package
+          # directory. Read from the profile rather than from `go tool cover -func`:
+          # that command prints a percentage per function, and averaging those would
+          # weight a one-line accessor the same as a hundred-line parser.
+          #
+          # Profile rows are: import/path/file.go:startLine.col,endLine.col nStmts count
+          #
+          # cmd/ subtrees are excluded. A main package is stream wiring around an
+          # os.Exit, which cannot be covered in-process at all; leaving it in would
+          # let two uncoverable lines hold a well-tested package below its floor.
+          # Those binaries are proven by the smoke and release jobs actually
+          # running them, which is stronger than a coverage number.
+          awk '
+            $0 ~ /^mode:/ { next }
+            index($1, "/cmd/") { next }
+            {
+              dir = $1
+              sub(/:[0-9]+\.[0-9]+,.*$/, "", dir)
+              sub(/\/[^/]*$/, "", dir)
+              total[dir] += $2
+              if ($3 > 0) { covered[dir] += $2 }
+            }
+            END {
+              for (d in total) { printf "%s %.1f\n", d, 100 * covered[d] / total[d] }
+            }' coverage.out | sort > per-package-coverage.txt
           fail=0
           for entry in $floors; do
             pkg="${entry%=*}"
             min="${entry#*=}"
-            # Weighted over statements, read from the profile rather than from
-            # `go tool cover -func`. That command prints a percentage per function,
-            # and averaging those would weight a one-line accessor the same as a
-            # hundred-line parser.
-            #
-            # Profile rows are: file.go:startLine.col,endLine.col numStmts count
-            #
-            # cmd/ subtrees are excluded. A main package is stream wiring around an
-            # os.Exit, which cannot be covered in-process at all; leaving it in would
-            # let two uncoverable lines hold a well-tested package below its floor.
-            # Those binaries are proven by the smoke and release jobs actually
-            # running them, which is stronger than a coverage number.
-            pct="$(awk -v pkg="/${pkg}/" '
-              $0 ~ /^mode:/ { next }
-              index($1, "/cmd/") { next }
-              index($1, pkg) {
-                total += $2
-                if ($3 > 0) { covered += $2 }
-              }
-              END {
-                if (total == 0) { print "none"; exit }
-                printf "%.1f", 100 * covered / total
-              }' coverage.out)"
-            if [ "$pct" = "none" ]; then
-              echo "::notice::no coverage rows for ${pkg}; floor of ${min}% not enforced (package does not exist yet)"
-              continue
-            fi
-            if awk -v a="$pct" -v b="$min" 'BEGIN { exit !(a + 0 >= b + 0) }'; then
-              echo "ok  ${pkg}: ${pct}% (floor ${min}%)"
-            else
-              echo "::error::${pkg}: ${pct}% is below the ${min}% floor"
-              fail=1
+            matched=0
+            while read -r dir pct; do
+              # Segment-anchored so internal/cli does not also claim a package
+              # called internal/client.
+              case "/${dir}/" in
+                */"${pkg}"/*) ;;
+                *) continue ;;
+              esac
+              matched=1
+              if awk -v a="$pct" -v b="$min" 'BEGIN { exit !(a + 0 >= b + 0) }'; then
+                echo "ok  ${dir}: ${pct}% (floor ${min}%)"
+              else
+                echo "::error::${dir}: ${pct}% is below the ${min}% floor for ${pkg}"
+                fail=1
+              fi
+            done < per-package-coverage.txt
+            if [ "$matched" -eq 0 ]; then
+              echo "::notice::no coverage rows under ${pkg}; floor of ${min}% not enforced (no such package yet)"
             fi
           done
           exit "$fail"
