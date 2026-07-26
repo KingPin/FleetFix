@@ -142,10 +142,33 @@ jobs:
             END {
               for (d in total) { printf "%s %.1f\n", d, 100 * covered[d] / total[d] }
             }' coverage.out | sort > per-package-coverage.txt
+          # Strip comments and whitespace before splitting. `for entry in $floors`
+          # splits on every space, so each word of a comment in the list above
+          # became its own entry -- twelve bogus "not enforced" notices burying
+          # the two real ones, and a comment word containing '=' would have become
+          # a phantom floor on a package that does not exist.
+          entries="$(printf '%s\n' "$floors" | sed -e 's/#.*$//' -e 's/[[:space:]]//g' -e '/^$/d')"
           fail=0
-          for entry in $floors; do
+          for entry in $entries; do
             pkg="${entry%=*}"
             min="${entry#*=}"
+            # A malformed entry fails rather than being skipped. A floor that is
+            # silently ignored reads exactly like one that passed.
+            case "$entry" in
+              *=*) ;;
+              *)
+                echo "::error::floor entry is not pkg=percent: ${entry}"
+                fail=1
+                continue
+                ;;
+            esac
+            case "$min" in
+              '' | *[!0-9]*)
+                echo "::error::floor for ${pkg} is not a whole percentage: ${min}"
+                fail=1
+                continue
+                ;;
+            esac
             matched=0
             while read -r dir pct; do
               # Segment-anchored so internal/cli does not also claim a package
