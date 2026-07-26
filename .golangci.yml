@@ -30,6 +30,12 @@ linters:
           list-mode: lax
           files:
             - "!**/internal/cmdrun/**"
+            # The one exemption, named rather than a blanket "!$test": this test
+            # runs `go list -deps` to prove internal/core reaches nothing above
+            # it, and there is no Runner to ask about the toolchain. Exempting
+            # every test file instead would let a test shell out to a real host,
+            # which is the other half of what this rule is for.
+            - "!**/internal/core/boundary_test.go"
           deny:
             - pkg: os/exec
               desc: >-
