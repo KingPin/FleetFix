@@ -64,3 +64,7 @@ secrets.yml
 # Logs the dev environment may produce
 *.log
 logs/
+
+# One-shot output of `tools/harvest_fixtures.py report`; it goes stale as soon as
+# `apply` moves the literals it points at.
+tools/harvest_proposal.json
