@@ -274,8 +274,8 @@ def main():
             # `data if isinstance(data, dict) else {}` at the end of it.
             path.write_text(body, encoding="utf-8", newline="")
             try:
-                out[name] = tag(config._read_yaml_mapping(path))  # noqa: SLF001
-            except Exception as exc:  # noqa: BLE001
+                out[name] = tag(config._read_yaml_mapping(path))
+            except Exception as exc:
                 # Three cases land here. _read_yaml_mapping catches only
                 # yaml.YAMLError, so a constructor that raises KeyError or
                 # ValueError escapes the loader that promises never to fail.
