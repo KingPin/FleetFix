@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/KingPin/FleetFix/v2/internal/core/disk"
+	"github.com/KingPin/FleetFix/v2/internal/core/logsqueeze"
 	"github.com/KingPin/FleetFix/v2/internal/core/network"
 	"github.com/KingPin/FleetFix/v2/internal/core/system"
 )
@@ -70,6 +71,14 @@ var dispatch = map[string]adapter{
 	}),
 	"disk.parse_nvme_attributes": text(func(t string, _ map[string]any) (any, error) {
 		return disk.ParseNVMeAttributes(t), nil
+	}),
+	"disk.parse_lsof_field_output": text(func(t string, _ map[string]any) (any, error) {
+		return disk.ParseLsofFieldOutput(t), nil
+	}),
+
+	// logsqueeze
+	"logsqueeze.lsof_has_writer": text(func(t string, _ map[string]any) (any, error) {
+		return logsqueeze.LsofHasWriter(t), nil
 	}),
 
 	// network

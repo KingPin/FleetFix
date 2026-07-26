@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -64,6 +65,28 @@ func TestUpdateAdaptersReturnPythonsTuple(t *testing.T) {
 				t.Errorf("dispatch[%q](%q) = %#v, want %#v", tt.fn, tt.text, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestGhostAdapterKeepsPythonsFieldNames pins the wire shape of the one ported
+// function that returns a list of records.
+//
+// py_oracle serialises a dataclass as its field names verbatim, so the JSON
+// tags on GhostFile are a contract with Python rather than a Go style choice. A
+// renamed field would show up in the differential as every ghost case
+// diverging; here it shows up as one line naming the field.
+func TestGhostAdapterKeepsPythonsFieldNames(t *testing.T) {
+	v, err := dispatch["disk.parse_lsof_field_output"].run("p9\ncbash\nuroot\nf3\ns7\nL0\nn/tmp/x\n", nil)
+	if err != nil {
+		t.Fatalf("adapter returned %v", err)
+	}
+	got, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshalling the adapter's value: %v", err)
+	}
+	want := `[{"pid":9,"command":"bash","user":"root","fd":"3","size_bytes":7,"path":"/tmp/x"}]`
+	if string(got) != want {
+		t.Errorf("adapter marshalled to\n\t%s\nwant\n\t%s", got, want)
 	}
 }
 
