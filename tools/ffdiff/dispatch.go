@@ -2,7 +2,10 @@ package main
 
 import (
 	"fmt"
+	"io/fs"
 	"math"
+	"os"
+	"path/filepath"
 
 	"github.com/KingPin/FleetFix/v2/internal/core/disk"
 	"github.com/KingPin/FleetFix/v2/internal/core/network"
@@ -23,6 +26,17 @@ type adapter struct {
 // text wraps an adapter that takes the fixture's contents.
 func text(fn func(string, map[string]any) (any, error)) adapter {
 	return adapter{input: "text", run: fn}
+}
+
+// pathFS wraps an adapter for a reader that opens its own input.
+//
+// v1 takes a Path and the port takes an fs.FS plus a name, so the temp file the
+// oracle wrote is split into its directory and basename here rather than every
+// reader growing a path-shaped overload it has no other caller for.
+func pathFS(fn func(fs.FS, string, map[string]any) (any, error)) adapter {
+	return adapter{input: "path", run: func(p string, args map[string]any) (any, error) {
+		return fn(os.DirFS(filepath.Dir(p)), filepath.Base(p), args)
+	}}
 }
 
 // dispatch mirrors py_oracle.py's DISPATCH, one entry per ported function.
@@ -94,6 +108,24 @@ var dispatch = map[string]adapter{
 		// so the manifest carries no argument for it and neither side is naming a
 		// path. Pass the same default rather than inventing one here.
 		return network.ParseResolvConf(t, ""), nil
+	}),
+	"net.default_route": pathFS(func(fsys fs.FS, name string, _ map[string]any) (any, error) {
+		// Python returns an (iface, gateway) tuple, or None when there is no
+		// default route.
+		if iface, gateway, ok := network.DefaultRoute(fsys, name); ok {
+			return []string{iface, gateway}, nil
+		}
+		return nil, nil
+	}),
+	"net.read_counters": pathFS(func(fsys fs.FS, name string, _ map[string]any) (any, error) {
+		// Python's values are (rx, tx) tuples. Flattening the struct back to the
+		// pair here keeps the named fields the rest of the port reads, without
+		// asking the comparison to treat an object and an array as the same thing.
+		out := map[string][]int64{}
+		for iface, c := range network.ReadCounters(fsys, name) {
+			out[iface] = []int64{c.RxBytes, c.TxBytes}
+		}
+		return out, nil
 	}),
 }
 
