@@ -1,0 +1,1 @@
+5|/var/lib/docker/containers/abc/abc-json.log|2026-05-16T10:00:00Z|running

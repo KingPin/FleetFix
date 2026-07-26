@@ -13,6 +13,7 @@
 {"id": "df.usage_missing_capacity", "fn": "disk.parse_df", "fixture": "df/usage_missing_capacity.txt", "sha256": "43e26e169b34f8ad21967a5bc0aad474f1704b68878453c9930f68dc5d2fd674", "input": "text", "args": {}}
 {"id": "df.usage_mixed", "fn": "disk.parse_df", "fixture": "df/usage_mixed.txt", "sha256": "c6da508d694c784000d898439c5124c25d38b0a81c57d0133e8738f7ce7077f3", "input": "text", "args": {}}
 {"id": "df.usage_mount_with_spaces", "fn": "disk.parse_df", "fixture": "df/usage_mount_with_spaces.txt", "sha256": "4c3f1fe67801b562e26614534be6bf15db02457f1bb15db828fc401a190e59ac", "input": "text", "args": {}}
+{"id": "docker.inspect_fields", "fn": "docker.parse_inspect_fields", "fixture": "docker/inspect_fields.txt", "sha256": "f0698e28718023da9c1b1be6362f3b2254c1dcc5e8497a1f63938546fda5ba9b", "input": "text", "args": {}}
 {"id": "docker.prune_reclaimed", "fn": "docker.parse_reclaimed_total", "fixture": "docker/prune_reclaimed.txt", "sha256": "e5e75de8bba0996fe75e82763d8a791f3b1aeb4e5c62d426b07a4412ce89b78d", "input": "text", "args": {}}
 {"id": "docker.ps_json_with_garbage", "fn": "docker.parse_ps_json_lines", "fixture": "docker/ps_json_with_garbage.txt", "sha256": "17ede0188eb8318ac1002d4c1497311295d0de706e04d71f688a30bb8853097d", "input": "text", "args": {}}
 {"id": "docker.system_df_json", "fn": "docker.parse_system_df_json_lines", "fixture": "docker/system_df_json.txt", "sha256": "c37218498ee573127ae19dd9b599902c22beb3bd1e164aa54532a4b44789458f", "input": "text", "args": {}}

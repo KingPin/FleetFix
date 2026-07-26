@@ -105,6 +105,7 @@ DISPATCH: dict[str, Adapter] = {
     # docker
     "docker.parse_reclaimed_total": lambda t, a: docker_hygiene.parse_reclaimed_total(t),
     "docker.parse_ps_json_lines": lambda t, a: docker_dashboard.parse_ps_json_lines(t),
+    "docker.parse_inspect_fields": lambda t, a: docker_dashboard.parse_inspect_fields(t),
     "docker.parse_system_df_json_lines": lambda t, a: docker_hygiene.parse_system_df_json_lines(t),
     # services
     "services.parse_failed_units": lambda t, a: services_failed.parse_failed_units(t),

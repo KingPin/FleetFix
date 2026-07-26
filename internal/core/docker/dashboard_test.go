@@ -158,6 +158,136 @@ func FuzzParsePSJSONLines(f *testing.F) {
 	})
 }
 
+func TestParseInspectFieldsFixture(t *testing.T) {
+	const name = "docker/inspect_fields.txt"
+	startedAt := "2026-05-16T10:00:00Z"
+	want := InspectFields{
+		RestartCount: 5,
+		LogPath:      "/var/lib/docker/containers/abc/abc-json.log",
+		StartedAt:    &startedAt,
+		Status:       "running",
+	}
+	got := ParseInspectFields(fixture.Text(t, name))
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("ParseInspectFields(%s) mismatch (-want +got):\n%s", name, diff)
+	}
+}
+
+func TestParseInspectFields(t *testing.T) {
+	s := func(v string) *string { return &v }
+	tests := []struct {
+		name string
+		in   string
+		want InspectFields
+	}{
+		{"all four", "5|/p|2026-05-16T10:00:00Z|running", InspectFields{5, "/p", s("2026-05-16T10:00:00Z"), "running"}},
+		{"empty fields", "|||", InspectFields{0, "", s(""), ""}},
+
+		// Too short is the whole line rejected, and started_at reports None rather
+		// than the "" an empty third field means.
+		{"no delimiters", "garbage", InspectFields{}},
+		{"empty", "", InspectFields{}},
+		{"whitespace only", "   ", InspectFields{}},
+		{"three fields", "5|b|c", InspectFields{}},
+
+		// A LogPath containing a "|" is the reachable case: the extras are dropped
+		// and the fields after the second are read from the wrong places. v1 does
+		// the same, and neither side can tell which "|" was the separator.
+		{"extra fields", "a|b|c|d|e|f", InspectFields{0, "b", s("c"), "d"}},
+
+		// int() on the count, not strconv: whitespace, a sign and underscores are
+		// all numbers, and a float or a hex literal is not.
+		{"padded count", " 7 |b|c|d", InspectFields{7, "b", s("c"), "d"}},
+		{"signed count", "+7|b|c|d", InspectFields{7, "b", s("c"), "d"}},
+		{"underscored count", "1_0|b|c|d", InspectFields{10, "b", s("c"), "d"}},
+		{"negative count", "-3|b|c|d", InspectFields{-3, "b", s("c"), "d"}},
+		{"float count", "7.0|b|c|d", InspectFields{0, "b", s("c"), "d"}},
+		{"hex count", "0x10|b|c|d", InspectFields{0, "b", s("c"), "d"}},
+		{"empty count", "|b|c|d", InspectFields{0, "b", s("c"), "d"}},
+		// Python's int() takes every Unicode Nd digit.
+		{"arabic-indic count", "\u0663|b|c|d", InspectFields{3, "b", s("c"), "d"}},
+
+		// Only the whole string is stripped, so the interior padding survives and
+		// the fourth field loses only its trailing run.
+		{"outer whitespace", "  5|b|c|d  ", InspectFields{5, "b", s("c"), "d"}},
+		{"tab and newline", "\t5|b|c|d\n", InspectFields{5, "b", s("c"), "d"}},
+		{"interior padding kept", "5|  b  |  c  |  d  ", InspectFields{5, "  b  ", s("  c  "), "  d"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ParseInspectFields(tt.in)
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("ParseInspectFields(%q) mismatch (-want +got):\n%s", tt.in, diff)
+			}
+		})
+	}
+}
+
+// The magnitude departure pytext.Int documents, pinned where it is reachable: v1
+// keeps an arbitrary-precision count and this lands on zero. Docker's own
+// RestartCount is a Go int, so nothing it writes gets here -- which is why this is
+// a recorded difference rather than a clamp that would preserve the > 3 comparison
+// the caller makes and be wrong about the number.
+func TestParseInspectFieldsCountAboveInt64IsZero(t *testing.T) {
+	got := ParseInspectFields("99999999999999999999999|b|c|d")
+	if got.RestartCount != 0 {
+		t.Errorf("RestartCount = %d, want 0", got.RestartCount)
+	}
+}
+
+// The four keys are always present and in v1's dict order, and started_at is the
+// one that has to be able to say null.
+func TestInspectFieldsWireShape(t *testing.T) {
+	got, err := json.Marshal(ParseInspectFields("5|/p|2026-05-16T10:00:00Z|running"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"restart_count":5,"log_path":"/p","started_at":"2026-05-16T10:00:00Z","status":"running"}`
+	if string(got) != want {
+		t.Errorf("marshalled to\n\t%s\nwant\n\t%s", got, want)
+	}
+
+	got, err = json.Marshal(ParseInspectFields("garbage"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = `{"restart_count":0,"log_path":"","started_at":null,"status":""}`
+	if string(got) != want {
+		t.Errorf("marshalled to\n\t%s\nwant\n\t%s", got, want)
+	}
+}
+
+func FuzzParseInspectFields(f *testing.F) {
+	for _, seed := range []string{
+		"5|/p|2026-05-16T10:00:00Z|running",
+		"garbage",
+		"|||",
+		"a|b|c|d|e|f",
+		" 7 |b|c|d",
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, in string) {
+		got := ParseInspectFields(in)
+
+		// Fewer than four fields is all-or-nothing, so a short line can never
+		// report a log path or a status read out of a partial split.
+		if len(strings.Split(strings.TrimFunc(in, pytext.IsSpace), "|")) < 4 {
+			if got != (InspectFields{}) {
+				t.Fatalf("ParseInspectFields(%q) = %#v on a short line, want the zero value", in, got)
+			}
+			return
+		}
+		// Past that, every field is present -- started_at is a string, not None.
+		if got.StartedAt == nil {
+			t.Fatalf("ParseInspectFields(%q) reported no started_at from a full line", in)
+		}
+		if _, err := json.Marshal(got); err != nil {
+			t.Fatalf("ParseInspectFields(%q) produced a value that will not marshal: %v", in, err)
+		}
+	})
+}
+
 // TestDecodeJSONLineRefusesTrailingData reaches the decoder directly, because the
 // two parsers above can only show its verdict and not which of the two checks
 // produced it.

@@ -123,6 +123,9 @@ var dispatch = map[string]adapter{
 	"docker.parse_system_df_json_lines": text(func(t string, _ map[string]any) (any, error) {
 		return docker.ParseSystemDFJSONLines(t), nil
 	}),
+	"docker.parse_inspect_fields": text(func(t string, _ map[string]any) (any, error) {
+		return docker.ParseInspectFields(t), nil
+	}),
 	"docker.parse_reclaimed_total": text(func(t string, _ map[string]any) (any, error) {
 		return docker.ParseReclaimedTotal(t), nil
 	}),

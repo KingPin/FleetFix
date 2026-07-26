@@ -23,7 +23,7 @@ def test_parse_ps_json_lines_handles_blank_and_garbage_lines() -> None:
 
 
 def test_parse_inspect_fields_extracts_all_four() -> None:
-    text = "5|/var/lib/docker/containers/abc/abc-json.log|2026-05-16T10:00:00Z|running"
+    text = fixture("docker/inspect_fields.txt")
     out = parse_inspect_fields(text)
     assert out["restart_count"] == 5
     assert out["log_path"].endswith("abc-json.log")
