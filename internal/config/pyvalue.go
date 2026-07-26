@@ -13,10 +13,14 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"math"
 	"math/big"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
+	"unicode"
 )
 
 // PyTruthy reports what Python's bool() would return for v.
@@ -62,11 +66,12 @@ func PyTruthy(v any) bool {
 // exists: `headers: {x-token: 12345}` must come out "12345", not be dropped for not
 // being a string.
 //
-// Not exact for []byte and the three collection types: v1 would spell those with
-// Python's repr ("b'hi'", "[1, 2]", "{'a': 1}") and reproducing that is a pile of
-// escaping rules for a config file nobody writes. They get a Go rendering instead,
-// which is wrong in the same direction v1 was useless in -- an OTLP header whose
-// value is a nested mapping was never going to work either way.
+// Collections and bytes defer to PyRepr, because str() of a container calls repr()
+// on it. That matters somewhere real: probes.yml turns every entry of a target list
+// into a string, so one extra dash in the YAML makes a list the thing being rendered,
+// and v1 puts "['8.8.8.8']" in the target slot rather than dropping it.
+//
+// Exact for everything except the three shapes PyRepr cannot promise.
 func PyStr(v any) string {
 	switch t := v.(type) {
 	case nil:
@@ -103,7 +108,146 @@ func PyStr(v any) string {
 			layout = "2006-01-02 15:04:05.000000-07:00"
 		}
 		return t.Format(layout)
+	case []byte, []any, map[string]any, map[string]struct{}:
+		return PyRepr(v)
 	default:
 		return fmt.Sprint(v)
 	}
+}
+
+// PyRepr renders v the way Python's repr() would.
+//
+// repr and str agree on every scalar this package produces except str and bytes,
+// where repr adds the quotes and the escapes -- and those are what a container's
+// str() shows, because str(list) reprs its elements.
+//
+// Three shapes this cannot promise:
+//
+//   - A mapping and a set. Python renders them in iteration order, which for a dict
+//     is insertion order and for a set is hash order; Go's map has neither, so both
+//     come out sorted by key. Sorted is stable and honest about it, where Go's own
+//     map ordering would be randomised per run and would turn a config value into a
+//     flaky one.
+//   - A timestamp. repr(datetime) is the constructor call --
+//     "datetime.datetime(2026, 7, 26, 0, 0)" -- and a bare YAML date reprs as
+//     datetime.date instead, a distinction time.Time does not keep. It strs instead,
+//     which is the isoformat.
+//
+// All three are only reachable through a container, because that is the only place
+// str() calls repr(). A scalar config value never takes this path.
+func PyRepr(v any) string {
+	switch t := v.(type) {
+	case string:
+		return pyQuoteStr(t)
+	case []byte:
+		return pyQuoteBytes(t)
+	case []any:
+		if len(t) == 0 {
+			return "[]"
+		}
+		parts := make([]string, len(t))
+		for i, item := range t {
+			parts[i] = PyRepr(item)
+		}
+		return "[" + strings.Join(parts, ", ") + "]"
+	case map[string]any:
+		if len(t) == 0 {
+			return "{}"
+		}
+		parts := make([]string, 0, len(t))
+		for _, k := range slices.Sorted(maps.Keys(t)) {
+			parts = append(parts, pyQuoteStr(k)+": "+PyRepr(t[k]))
+		}
+		return "{" + strings.Join(parts, ", ") + "}"
+	case map[string]struct{}:
+		// An empty set is set(), not {} -- {} is an empty dict, and Python has no
+		// literal for the empty set.
+		if len(t) == 0 {
+			return "set()"
+		}
+		parts := make([]string, 0, len(t))
+		for _, k := range slices.Sorted(maps.Keys(t)) {
+			parts = append(parts, pyQuoteStr(k))
+		}
+		return "{" + strings.Join(parts, ", ") + "}"
+	default:
+		// Every remaining type in the vocabulary reprs the way it strs.
+		return PyStr(v)
+	}
+}
+
+// pyQuoteStr is Python's repr of a str.
+func pyQuoteStr(s string) string {
+	quote := pyQuoteChar(s)
+	var b strings.Builder
+	b.WriteByte(quote)
+	for _, r := range s {
+		switch {
+		case r == rune(quote) || r == '\\':
+			b.WriteByte('\\')
+			b.WriteRune(r)
+		case r == '\n':
+			b.WriteString(`\n`)
+		case r == '\r':
+			b.WriteString(`\r`)
+		case r == '\t':
+			b.WriteString(`\t`)
+		case !unicode.IsPrint(r):
+			// Go's IsPrint is Python's str.isprintable(): categories L, M, N, P, S
+			// plus ASCII space, which is why U+00A0 escapes and U+00E9 does not.
+			// Python 3's repr emits printable non-ASCII literally.
+			switch {
+			case r < 0x100:
+				fmt.Fprintf(&b, `\x%02x`, r)
+			case r < 0x10000:
+				fmt.Fprintf(&b, `\u%04x`, r)
+			default:
+				fmt.Fprintf(&b, `\U%08x`, r)
+			}
+		default:
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte(quote)
+	return b.String()
+}
+
+// pyQuoteBytes is Python's repr of a bytes.
+//
+// Byte-wise, not rune-wise: bytes repr is ASCII plus hex escapes, and !!binary is
+// base64 of arbitrary bytes, so decoding it as UTF-8 first would render a blob that
+// is not text as something other than what Python shows.
+func pyQuoteBytes(p []byte) string {
+	quote := pyQuoteChar(string(p))
+	var b strings.Builder
+	b.WriteString("b")
+	b.WriteByte(quote)
+	for _, c := range p {
+		switch {
+		case c == quote || c == '\\':
+			b.WriteByte('\\')
+			b.WriteByte(c)
+		case c == '\n':
+			b.WriteString(`\n`)
+		case c == '\r':
+			b.WriteString(`\r`)
+		case c == '\t':
+			b.WriteString(`\t`)
+		case c < 0x20 || c >= 0x7f:
+			fmt.Fprintf(&b, `\x%02x`, c)
+		default:
+			b.WriteByte(c)
+		}
+	}
+	b.WriteByte(quote)
+	return b.String()
+}
+
+// pyQuoteChar picks repr's quote: single, unless the value holds one and no double
+// quote. That rule is what makes repr("it's") come out "it's" rather than 'it\'s'.
+func pyQuoteChar(s string) byte {
+	if strings.Contains(s, "'") && !strings.Contains(s, `"`) {
+		return '"'
+	}
+	return '\''
 }
