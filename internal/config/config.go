@@ -24,6 +24,11 @@
 // what every call site is written against. It does return the parse error
 // alongside, so `check --json` can carry it in config_warnings[] and `doctor` can
 // show it; v1 could only log.
+//
+// "Never fails" is stronger here than in v1, deliberately. v1 read the file with
+// Path.read_text(encoding="utf-8") and caught OSError, so a config file containing
+// invalid UTF-8 raised UnicodeDecodeError past the handler and took the process
+// down at startup. Here it is an ordinary parse failure: warn, and load defaults.
 package config
 
 import (
@@ -44,6 +49,15 @@ func ReadPathsYAML(path string) (map[string]any, error) { return readYAMLMapping
 
 // ReadPerfYAML loads perf.yml: the reduce-animations override.
 func ReadPerfYAML(path string) (map[string]any, error) { return readYAMLMapping(path) }
+
+// ReadOtelYAML loads otel.yml: the OTLP endpoint, headers, insecure and service name.
+//
+// v1 kept a second copy of the loader in audit/otel.py rather than importing
+// config's, and the two were byte-for-byte the same three steps -- read, safe_load,
+// keep it only if it is a dict -- so this collapses them into one. internal/audit
+// resolves the values; reading the file is this package's job, since the decoder
+// lives here.
+func ReadOtelYAML(path string) (map[string]any, error) { return readYAMLMapping(path) }
 
 func readYAMLMapping(path string) (map[string]any, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // the path is the argument; naming a file is the whole call
