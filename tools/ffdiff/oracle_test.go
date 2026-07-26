@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/hex"
 	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -344,10 +345,10 @@ func TestRedactRewritesOnlyTheInputPath(t *testing.T) {
 	}
 }
 
-// No parser takes a path yet, so this registers a stand-in adapter to exercise
-// the plumbing before the first real one arrives: the fixture is copied under its
-// own basename, the copy is what the adapter is handed, and the path is redacted
-// back out of the result so a run is reproducible.
+// A stand-in adapter rather than a real one, so a failure here is the plumbing
+// and not a parser built on it: the fixture is copied under its own basename, the
+// copy is what the adapter is handed, and the path is redacted back out of the
+// result so a run is reproducible.
 func TestRunCasePathInput(t *testing.T) {
 	var handed string
 	restore := register(t, "test.path_fn", adapter{
@@ -386,6 +387,129 @@ func TestRunCasePathInput(t *testing.T) {
 	value, _ := rec["value"].(map[string]any)
 	if value["source"] != "<input-path>" {
 		t.Errorf("the temp path survived into the result: %v", value)
+	}
+}
+
+// The tree kind materialises a JSON directory description into a real directory
+// rather than an in-memory filesystem, so both oracles hand their implementation
+// the same answers for the shapes a synthesised filesystem gets subtly wrong: a
+// file where a directory was expected, and a directory with nothing in it.
+func TestRunCaseTreeInput(t *testing.T) {
+	restore := register(t, "test.tree_fn", treeFS(func(fsys fs.FS, _ map[string]any) (any, error) {
+		var seen []string
+		err := fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			kind := "file"
+			if d.IsDir() {
+				kind = "dir"
+			}
+			seen = append(seen, kind+" "+p)
+			return nil
+		})
+		return seen, err
+	}))
+	defer restore()
+
+	dir := t.TempDir()
+	// An empty object is a directory with nothing in it -- a driver that registered
+	// and then failed -- and a string at the top level is a plain file where a
+	// caller walking the tree expects a directory.
+	body := `{"zone0": {"temp": "42000\n"}, "zone1": {}, "notadir": "plain"}`
+	if err := os.WriteFile(filepath.Join(dir, "tree.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := Case{
+		ID: "t.tree", Fn: "test.tree_fn", Fixture: "tree.json",
+		SHA256: hex.EncodeToString(hashOf([]byte(body))), Input: "tree",
+	}
+
+	rec, err := runCase(c, dir, t.TempDir())
+	if err != nil {
+		t.Fatalf("runCase: %v", err)
+	}
+	want := []string{"dir .", "file notadir", "dir zone0", "file zone0/temp", "dir zone1"}
+	value, _ := rec["value"].([]any)
+	got := make([]string, len(value))
+	for i, elem := range value {
+		got[i], _ = elem.(string)
+	}
+	if !equalStrings(got, want) {
+		t.Errorf("adapter walked %v, want %v", got, want)
+	}
+}
+
+// Two cases may share one tree fixture -- read_zones and hottest both read the
+// thermal capture -- and must not be able to see each other's writes, even though
+// nothing materialises a tree for writing today.
+func TestRunCaseTreeGivesEachCaseItsOwnDirectory(t *testing.T) {
+	var roots []string
+	restore := register(t, "test.tree_root_fn", adapter{
+		input: "tree",
+		run: func(root string, _ map[string]any) (any, error) {
+			roots = append(roots, root)
+			return nil, nil
+		},
+	})
+	defer restore()
+
+	dir := t.TempDir()
+	body := `{"a": "1"}`
+	if err := os.WriteFile(filepath.Join(dir, "tree.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sum := hex.EncodeToString(hashOf([]byte(body)))
+	tmp := t.TempDir()
+	for _, id := range []string{"t.tree", "t.tree#variant"} {
+		c := Case{ID: id, Fn: "test.tree_root_fn", Fixture: "tree.json", SHA256: sum, Input: "tree"}
+		if _, err := runCase(c, dir, tmp); err != nil {
+			t.Fatalf("runCase %s: %v", id, err)
+		}
+	}
+	if roots[0] == roots[1] {
+		t.Errorf("both cases were handed %q", roots[0])
+	}
+	// The id becomes a single directory name, so its separators cannot survive.
+	for _, root := range roots {
+		if base := filepath.Base(root); strings.ContainsAny(base, "#/") {
+			t.Errorf("root %q keeps a character that is not a directory name", base)
+		}
+		if filepath.Dir(root) != tmp {
+			t.Errorf("root %q is not under the run's temp directory %q", root, tmp)
+		}
+	}
+}
+
+// A tree fixture that will not decode is corpus corruption, not a result: recording
+// it as an error code would read as a divergence in the reader.
+func TestRunCaseRejectsAMalformedTree(t *testing.T) {
+	restore := register(t, "test.tree_bad_fn", treeFS(func(fs.FS, map[string]any) (any, error) {
+		return nil, nil
+	}))
+	defer restore()
+
+	dir := t.TempDir()
+	body := `["not an object"]`
+	if err := os.WriteFile(filepath.Join(dir, "tree.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := Case{
+		ID: "t.badtree", Fn: "test.tree_bad_fn", Fixture: "tree.json",
+		SHA256: hex.EncodeToString(hashOf([]byte(body))), Input: "tree",
+	}
+	_, err := runCase(c, dir, t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "tree.json") {
+		t.Fatalf("runCase = %v, want an error naming the fixture", err)
+	}
+}
+
+// A number or a list inside the tree has no filesystem meaning, and guessing one
+// would let a mistyped fixture materialise as something nobody wrote.
+func TestWriteTreeRejectsAValueThatIsNeither(t *testing.T) {
+	err := writeTree(map[string]any{"millidegrees": 42000.0}, filepath.Join(t.TempDir(), "root"))
+	if err == nil || !strings.Contains(err.Error(), "millidegrees") {
+		t.Fatalf("writeTree = %v, want an error naming the entry", err)
 	}
 }
 

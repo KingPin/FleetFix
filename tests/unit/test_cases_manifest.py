@@ -61,8 +61,10 @@ def test_case_id_is_derived_from_its_fixture_path(case: dict[str, Any]) -> None:
 @pytest.mark.parametrize("case", CASES, ids=lambda c: str(c["id"]))
 def test_case_input_kind_is_known(case: dict[str, Any]) -> None:
     # "text" hands the bytes to the function; "path" writes them to a temp file
-    # and hands over the path. Anything else has no defined meaning on either side.
-    assert case["input"] in {"text", "path"}
+    # and hands over the path; "tree" reads the fixture as a JSON directory
+    # description, materialises it, and hands over the root. Anything else has no
+    # defined meaning on either side.
+    assert case["input"] in {"text", "path", "tree"}
 
 
 @pytest.mark.parametrize("case", CASES, ids=lambda c: str(c["id"]))

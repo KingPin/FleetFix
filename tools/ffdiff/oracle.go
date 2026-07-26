@@ -129,7 +129,8 @@ func runCase(c Case, testdataDir, tmpDir string) (map[string]any, error) {
 
 	payload := string(data)
 	needle := ""
-	if c.Input == "path" {
+	switch c.Input {
+	case "path":
 		// Keep the fixture's own basename: a reader debugging a failure can tell
 		// which capture a temp path came from.
 		target := filepath.Join(tmpDir, filepath.Base(filepath.FromSlash(c.Fixture)))
@@ -137,6 +138,20 @@ func runCase(c Case, testdataDir, tmpDir string) (map[string]any, error) {
 			return nil, err
 		}
 		payload, needle = target, target
+	case "tree":
+		// A real directory rather than an fstest.MapFS, so both oracles hand their
+		// implementation the same thing: os.DirFS over a materialised tree answers
+		// the same questions Python's Path does, including the ones a synthesised
+		// filesystem gets subtly wrong -- a file where a directory was expected
+		// reports ENOTDIR, not "no such file".
+		//
+		// One directory per case, not per fixture: two cases sharing a tree must not
+		// be able to see each other's writes, even though nothing here writes today.
+		root := filepath.Join(tmpDir, strings.NewReplacer("/", "_", "#", "-").Replace(c.ID))
+		if err := materialiseTree(data, root); err != nil {
+			return nil, fmt.Errorf("fixture %s: %w", c.Fixture, err)
+		}
+		payload, needle = root, root
 	}
 
 	value, err := ad.run(payload, c.Args)
@@ -151,6 +166,45 @@ func runCase(c Case, testdataDir, tmpDir string) (map[string]any, error) {
 		plain = redact(plain, needle)
 	}
 	return map[string]any{"id": c.ID, "value": plain}, nil
+}
+
+// materialiseTree writes a JSON directory description out as a real tree: a string
+// is a file's contents, a nested object is a directory.
+//
+// The fixture kind the readers that walk a directory need -- /sys/class/thermal,
+// /sys/class/net, /proc/<pid> -- where one checked-in JSON file is a whole captured
+// tree and so keeps a checksum in the manifest like every other fixture. An empty
+// object is an empty directory, which is a real sysfs shape: a driver that
+// registered and then failed leaves one behind, and the reader must skip it for
+// that reason rather than because it was not there at all.
+func materialiseTree(data []byte, root string) error {
+	var node map[string]any
+	if err := json.Unmarshal(data, &node); err != nil {
+		return err
+	}
+	return writeTree(node, root)
+}
+
+func writeTree(node map[string]any, at string) error {
+	if err := os.MkdirAll(at, 0o700); err != nil {
+		return err
+	}
+	for name, child := range node {
+		target := filepath.Join(at, name)
+		switch v := child.(type) {
+		case string:
+			if err := os.WriteFile(target, []byte(v), 0o600); err != nil {
+				return err
+			}
+		case map[string]any:
+			if err := writeTree(v, target); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("%s is %T, want a string (a file) or an object (a directory)", name, child)
+		}
+	}
+	return nil
 }
 
 func errorRecord(id string, e recordError) map[string]any {

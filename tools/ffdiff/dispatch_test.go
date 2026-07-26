@@ -524,6 +524,108 @@ func TestHostPortAdapterSpellsAnEmptyFixtureAsAList(t *testing.T) {
 	}
 }
 
+// The thermal adapters are handed the root of a materialised tree rather than a
+// file, and read from "." inside it -- the shipping caller passes hostfs Sys plus
+// "class/thermal", so the reader has to honour both.
+func TestZoneAdaptersReadTheTreeTheyAreHanded(t *testing.T) {
+	root := t.TempDir()
+	for name, milli := range map[string]string{"thermal_zone0": "42000\n", "thermal_zone1": "55123\n"} {
+		dir := filepath.Join(root, name)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "temp"), []byte(milli), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "type"), []byte("acpitz\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tests := []struct {
+		fn   string
+		want string
+	}{
+		{
+			"system.read_zones",
+			`[{"name":"thermal_zone0","type":"acpitz","temp_c":42},` +
+				`{"name":"thermal_zone1","type":"acpitz","temp_c":55.123}]`,
+		},
+		{"system.hottest", `{"name":"thermal_zone1","type":"acpitz","temp_c":55.123}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.fn, func(t *testing.T) {
+			v, err := dispatch[tt.fn].run(root, nil)
+			if err != nil {
+				t.Fatalf("dispatch: %v", err)
+			}
+			got, err := json.Marshal(v)
+			if err != nil {
+				t.Fatalf("Marshal: %v", err)
+			}
+			if string(got) != tt.want {
+				t.Errorf("dispatch[%q] = %s, want %s", tt.fn, got, tt.want)
+			}
+		})
+	}
+}
+
+// Most VMs and every container have no thermal sensors, so the empty answer is the
+// common one rather than an edge case. Python spells it None and [] respectively;
+// the zero ThermalZone would read as an unnamed sensor sitting at 0 degrees, and a
+// nil slice would marshal as null.
+func TestZoneAdaptersSpellNoSensorsAsPythonDoes(t *testing.T) {
+	root := t.TempDir()
+	for fn, want := range map[string]string{"system.read_zones": "[]", "system.hottest": "null"} {
+		t.Run(fn, func(t *testing.T) {
+			v, err := dispatch[fn].run(root, nil)
+			if err != nil {
+				t.Fatalf("dispatch: %v", err)
+			}
+			got, err := json.Marshal(v)
+			if err != nil {
+				t.Fatalf("Marshal: %v", err)
+			}
+			if string(got) != want {
+				t.Errorf("dispatch[%q] on a host with no sensors = %s, want %s", fn, got, want)
+			}
+		})
+	}
+}
+
+// v1 wraps only the temperature read in its try, so an existing-but-unreadable type
+// file propagates out of read_zones and loses the zones already collected. Both
+// adapters have to report that as the PermissionError it is rather than as a host
+// with no sensors -- those are different problems.
+func TestZoneAdaptersReportAnUnreadableTypeAsPythonDoes(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads anything; the distinction is unobservable here")
+	}
+	root := t.TempDir()
+	dir := filepath.Join(root, "thermal_zone0")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "temp"), []byte("42000\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "type"), []byte("acpitz\n"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, fn := range []string{"system.read_zones", "system.hottest"} {
+		t.Run(fn, func(t *testing.T) {
+			v, err := dispatch[fn].run(root, nil)
+			if got := errorCode(err); got != "PermissionError" {
+				t.Errorf("dispatch[%q] on an unreadable type = %q, want PermissionError", fn, got)
+			}
+			if v != nil {
+				t.Errorf("dispatch[%q] returned %v alongside its error, want nil", fn, v)
+			}
+		})
+	}
+}
+
 func TestSystemAdaptersReportAnUnreadableFileAsPythonDoes(t *testing.T) {
 	// The oracle hands each adapter a real path, so a missing one is the only
 	// failure reachable through the adapter rather than through the reader.

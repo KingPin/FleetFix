@@ -1,0 +1,15 @@
+{
+  "cooling_device0": { "temp": "1000\n", "type": "Processor\n" },
+  "thermal_zone0": { "temp": "55123\n", "type": "x86_pkg_temp\n" },
+  "thermal_zone1": { "temp": "  42000  \n", "type": "  acpitz  \n" },
+  "thermal_zone10": { "temp": "+1000", "type": "" },
+  "thermal_zone11": {},
+  "thermal_zone2": { "type": "no temp file at all\n" },
+  "thermal_zone3": { "temp": "banana\n", "type": "unparseable\n" },
+  "thermal_zone4": { "temp": "-273150\n" },
+  "thermal_zone5": { "temp": "\u001c7000\n" },
+  "thermal_zone6": { "temp": "4_2000\n" },
+  "thermal_zone7": { "temp": "\n" },
+  "thermal_zone8": "a regular file where a zone directory should be",
+  "thermal_zone9": { "temp": "55123\n", "type": "x86_pkg_temp\n" }
+}

@@ -70,7 +70,7 @@ from fleetfix.modules.network import traceroute as tr  # noqa: E402
 from fleetfix.modules.services import boot as services_boot  # noqa: E402
 from fleetfix.modules.services import failed as services_failed  # noqa: E402
 from fleetfix.modules.storage import env_check  # noqa: E402
-from fleetfix.modules.system import metrics, updates  # noqa: E402
+from fleetfix.modules.system import metrics, thermal, updates  # noqa: E402
 from fleetfix.updater import installer  # noqa: E402
 
 MANIFEST = REPO_ROOT / "testdata" / "cases.jsonl"
@@ -82,6 +82,30 @@ TESTDATA = REPO_ROOT / "testdata"
 # input="text" cases and a Path to a temp copy of it for input="path".
 Adapter = Callable[[Any, dict[str, Any]], Any]
 
+
+def materialise_tree(node: dict[str, Any], at: Path) -> None:
+    """Write a JSON directory description out as a real tree.
+
+    The fixture kind the readers that walk a directory need -- /sys/class/thermal,
+    /sys/class/net, /proc/<pid> -- where a string is a file's contents and a nested
+    object is a directory. One checked-in JSON file is a whole captured tree, so it
+    keeps a checksum in the manifest like every other fixture.
+
+    An empty object is an empty directory, which is a real sysfs shape: a driver
+    that registered and then failed leaves one behind, and the reader must skip it
+    for that reason rather than because it was not there at all.
+    """
+    at.mkdir(parents=True, exist_ok=True)
+    for name, child in node.items():
+        target = at / name
+        if isinstance(child, str):
+            target.write_text(child, encoding="utf-8")
+        elif isinstance(child, dict):
+            materialise_tree(child, target)
+        else:
+            raise TypeError(f"{target}: want a string (a file) or an object (a directory)")
+
+
 DISPATCH: dict[str, Adapter] = {
     # system
     "system.parse_apt_upgradable": lambda t, a: updates.parse_apt_upgradable(t),
@@ -89,6 +113,11 @@ DISPATCH: dict[str, Adapter] = {
     "system.read_uptime": lambda p, a: metrics.read_uptime(p),
     "system.read_loadavg": lambda p, a: metrics.read_loadavg(p),
     "system.read_meminfo": lambda p, a: metrics.read_meminfo(p),
+    "system.read_zones": lambda p, a: thermal.read_zones(p),
+    # Called through read_zones rather than over a hand-built list: the tie rule --
+    # max() keeps its incumbent, so the lexicographically first of two equally warm
+    # zones wins -- is only observable against the order read_zones produced.
+    "system.hottest": lambda p, a: thermal.hottest(thermal.read_zones(p)),
     # disk
     "disk.parse_df": lambda t, a: usage.parse_df(t),
     "disk.parse_df_inodes": lambda t, a: inodes.parse_df_inodes(t),
@@ -197,13 +226,21 @@ def run_case(case: dict[str, Any], tmp: Path) -> dict[str, Any]:
     data = (TESTDATA / str(case["fixture"])).read_bytes()
     args = dict(case["args"])
     needle = ""
+    payload: Any
     if case["input"] == "path":
         # Keep the fixture's own basename: a reader debugging a failure can tell
         # which capture a temp path came from.
         target = tmp / Path(str(case["fixture"])).name
         target.write_bytes(data)
-        payload: Any = target
+        payload = target
         needle = str(target)
+    elif case["input"] == "tree":
+        # One directory per case, not per fixture: two cases sharing a tree must not
+        # be able to see each other's writes, even though nothing here writes today.
+        root = tmp / str(case["id"]).replace("/", "_").replace("#", "-")
+        materialise_tree(json.loads(data.decode()), root)
+        payload = root
+        needle = str(root)
     else:
         payload = data.decode()
 

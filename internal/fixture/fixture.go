@@ -19,10 +19,15 @@
 package fixture
 
 import (
+	"encoding/json"
+	"fmt"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"testing"
+	"testing/fstest"
 )
 
 // Root returns the absolute path of the repository root.
@@ -72,4 +77,51 @@ func read(rel string) ([]byte, error) {
 func Text(tb testing.TB, rel string) string {
 	tb.Helper()
 	return string(Bytes(tb, rel))
+}
+
+// Tree reads a directory-shaped fixture -- a JSON object where a string is a
+// file's contents and a nested object is a directory -- and returns it as an
+// fs.FS.
+//
+// The kind exists for the readers that walk a tree rather than open a file:
+// /sys/class/thermal, /sys/class/net, /proc/<pid>. One JSON file is a whole
+// captured directory, so it stays a checked-in fixture with a checksum in the
+// manifest like every other, and the Python oracle can materialise the same tree
+// into a temp directory and hand v1 a Path.
+//
+// An empty object is an empty directory, which fstest.MapFS would otherwise have
+// no way to hold -- it synthesises directories from the files inside them. That
+// matters here: an empty zone directory is a real sysfs shape, and it must be
+// present-but-empty rather than absent, or the reader skips it for the wrong
+// reason and the two oracles agree by accident.
+func Tree(tb testing.TB, rel string) fs.FS {
+	tb.Helper()
+	var root map[string]any
+	if err := json.Unmarshal(Bytes(tb, rel), &root); err != nil {
+		tb.Fatalf("fixture %s: %v", rel, err)
+	}
+	mapfs := fstest.MapFS{}
+	if err := walkTree(mapfs, "", root); err != nil {
+		tb.Fatalf("fixture %s: %v", rel, err)
+	}
+	return mapfs
+}
+
+// walkTree flattens the decoded fixture into MapFS entries.
+func walkTree(mapfs fstest.MapFS, dir string, node map[string]any) error {
+	for name, child := range node {
+		at := path.Join(dir, name)
+		switch v := child.(type) {
+		case string:
+			mapfs[at] = &fstest.MapFile{Data: []byte(v)}
+		case map[string]any:
+			mapfs[at] = &fstest.MapFile{Mode: fs.ModeDir | 0o555}
+			if err := walkTree(mapfs, at, v); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("%s is %T, want a string (a file) or an object (a directory)", at, child)
+		}
+	}
+	return nil
 }

@@ -49,6 +49,18 @@ func pathFS(fn func(fs.FS, string, map[string]any) (any, error)) adapter {
 	}}
 }
 
+// treeFS wraps an adapter for a reader that walks a directory.
+//
+// The oracle materialised the fixture's tree into a temp directory and the reader
+// takes an fs.FS rooted at it, so the walk starts at "." -- the shipping caller
+// passes hostfs Sys plus "class/thermal" instead, and the reader has to honour
+// both.
+func treeFS(fn func(fs.FS, map[string]any) (any, error)) adapter {
+	return adapter{input: "tree", run: func(root string, args map[string]any) (any, error) {
+		return fn(os.DirFS(root), args)
+	}}
+}
+
 // wholePath wraps an adapter for a function that takes a path and reports it back.
 //
 // The path must reach it undivided. Both oracles redact their own temp path by
@@ -282,6 +294,28 @@ var dispatch = map[string]adapter{
 			return nil, systemErr(err)
 		}
 		return v, nil
+	}),
+	"system.read_zones": treeFS(func(fsys fs.FS, _ map[string]any) (any, error) {
+		v, err := system.ReadZones(fsys, ".")
+		if err != nil {
+			return nil, systemErr(err)
+		}
+		return v, nil
+	}),
+	// Fed from read_zones rather than a hand-built list: the tie rule -- the
+	// lexicographically first of two equally warm zones wins -- is only observable
+	// against the order read_zones produced.
+	"system.hottest": treeFS(func(fsys fs.FS, _ map[string]any) (any, error) {
+		zones, err := system.ReadZones(fsys, ".")
+		if err != nil {
+			return nil, systemErr(err)
+		}
+		// Python returns None on a host with no thermal sensors. The zero
+		// ThermalZone would read as an unnamed sensor sitting at 0 degrees.
+		if z, ok := system.Hottest(zones); ok {
+			return z, nil
+		}
+		return nil, nil
 	}),
 	"system.parse_notifier_text": text(func(t string, _ map[string]any) (any, error) {
 		// Python returns None when the file holds no recognisable count. A pair
