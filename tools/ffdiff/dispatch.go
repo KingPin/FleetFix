@@ -89,6 +89,12 @@ var dispatch = map[string]adapter{
 		}
 		return nil, nil
 	}),
+	"net.parse_resolv_conf": text(func(t string, _ map[string]any) (any, error) {
+		// source is keyword-only with a "" default and py_oracle leaves it there,
+		// so the manifest carries no argument for it and neither side is naming a
+		// path. Pass the same default rather than inventing one here.
+		return network.ParseResolvConf(t, ""), nil
+	}),
 }
 
 // traceArgs reads the two arguments both trace parsers take.
