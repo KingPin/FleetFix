@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/KingPin/FleetFix/v2/internal/core/disk"
 	"github.com/KingPin/FleetFix/v2/internal/core/network"
@@ -68,6 +69,25 @@ var dispatch = map[string]adapter{
 		}
 		return nil, nil
 	}),
+	"net.parse_traceroute_output": text(func(t string, args map[string]any) (any, error) {
+		return traceArgs(args, t, network.ParseTracerouteOutput)
+	}),
+	"net.parse_tracepath_output": text(func(t string, args map[string]any) (any, error) {
+		return traceArgs(args, t, network.ParseTracepathOutput)
+	}),
+}
+
+// traceArgs reads the two arguments both trace parsers take.
+func traceArgs(args map[string]any, t string, parse func(string, string, int) network.TraceResult) (any, error) {
+	target, err := strArg(args, "target")
+	if err != nil {
+		return nil, err
+	}
+	maxHops, err := intArg(args, "max_hops")
+	if err != nil {
+		return nil, err
+	}
+	return parse(target, t, maxHops), nil
 }
 
 // strArg reads a manifest argument the adapter requires.
@@ -86,4 +106,22 @@ func strArg(args map[string]any, key string) (string, error) {
 		return "", fmt.Errorf("manifest argument %q is %T, want a string", key, v)
 	}
 	return s, nil
+}
+
+// intArg reads a whole-number manifest argument. JSON has one number type, so
+// the decoded value is a float64 and a fractional one means the manifest says
+// something the Python signature could not accept either.
+func intArg(args map[string]any, key string) (int, error) {
+	v, ok := args[key]
+	if !ok {
+		return 0, fmt.Errorf("manifest case has no %q argument", key)
+	}
+	f, ok := v.(float64)
+	if !ok {
+		return 0, fmt.Errorf("manifest argument %q is %T, want a number", key, v)
+	}
+	if f != math.Trunc(f) {
+		return 0, fmt.Errorf("manifest argument %q is %v, want a whole number", key, f)
+	}
+	return int(f), nil
 }

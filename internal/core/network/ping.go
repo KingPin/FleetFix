@@ -11,9 +11,17 @@ import (
 	"github.com/KingPin/FleetFix/v2/internal/pytext"
 )
 
+// Regex fragments shared across the package's parsers. Python's \s and \d are
+// Unicode where Go's are ASCII, so spelling them out is not decoration -- see
+// pytext.Space and pytext.Digit.
 const (
 	optSpaces = pytext.Space + `*`
+	spaces    = pytext.Space + `+`
+	nonSpace  = pytext.NotSpace + `+`
 	digits    = pytext.Digit + `+`
+)
+
+const (
 	// The rtt line's own character class, ASCII in v1 and left that way: iputils
 	// prints these with printf, so a Unicode digit here would mean something
 	// other than ping produced the line.

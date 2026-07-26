@@ -222,6 +222,63 @@ func TestDispatchAgreesWithManifest(t *testing.T) {
 	}
 }
 
+// An adapter's arguments come from the manifest, and the manifest is shared with
+// py_oracle. A missing or mistyped one is the two tables disagreeing about a
+// case's signature, which has to surface as an error on the case rather than as
+// a zero value that reads like a target nobody set or a hop limit of nought.
+func TestAdapterArgumentsAreCheckedNotAssumed(t *testing.T) {
+	strTests := []struct {
+		name string
+		args map[string]any
+		want string
+	}{
+		{"present", map[string]any{"target": "8.8.8.8"}, ""},
+		{"absent", map[string]any{}, `no "target" argument`},
+		{"wrong type", map[string]any{"target": 1.0}, `is float64, want a string`},
+	}
+	for _, tt := range strTests {
+		t.Run("target/"+tt.name, func(t *testing.T) {
+			_, err := strArg(tt.args, "target")
+			assertErrContains(t, err, tt.want)
+		})
+	}
+
+	intTests := []struct {
+		name string
+		args map[string]any
+		want string
+	}{
+		// JSON has one number type, so a whole number decodes as a float64.
+		{"present", map[string]any{"max_hops": 15.0}, ""},
+		{"absent", map[string]any{}, `no "max_hops" argument`},
+		{"wrong type", map[string]any{"max_hops": "15"}, `is string, want a number`},
+		{"fractional", map[string]any{"max_hops": 1.5}, `want a whole number`},
+	}
+	for _, tt := range intTests {
+		t.Run("max_hops/"+tt.name, func(t *testing.T) {
+			_, err := intArg(tt.args, "max_hops")
+			assertErrContains(t, err, tt.want)
+		})
+	}
+
+	// And the adapters themselves propagate it rather than parsing with a hole.
+	for _, fn := range []string{"net.parse_ping_output", "net.parse_traceroute_output"} {
+		if _, err := dispatch[fn].run("", map[string]any{}); err == nil {
+			t.Errorf("dispatch[%q] ran with no arguments at all", fn)
+		}
+	}
+}
+
+func assertErrContains(t *testing.T, err error, want string) {
+	t.Helper()
+	switch {
+	case want == "" && err != nil:
+		t.Fatalf("got %v, want no error", err)
+	case want != "" && (err == nil || !strings.Contains(err.Error(), want)):
+		t.Fatalf("got %v, want an error mentioning %q", err, want)
+	}
+}
+
 func TestListFunctions(t *testing.T) {
 	var stdout, stderr strings.Builder
 	if err := runOracle([]string{"--list-functions"}, &stdout, &stderr); err != nil {
