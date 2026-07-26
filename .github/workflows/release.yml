@@ -1,0 +1,244 @@
+# Release. Replaces build.yml, which built one PyInstaller onefile and verified
+# nothing but `--version`.
+#
+# This workflow is the single most dangerous thing in the project. The mechanism
+# that installs v2.0.0 on a fleet host is the v1.6.0 Python binary replacing
+# itself, and that updater keeps no backup: it verifies a SHA-256 from the same
+# release as the binary and then destroys the old file. So every assumption the
+# 1.6.0 installer makes is asserted here, in the job, before anything is uploaded.
+#
+# Two properties in particular are load-bearing:
+#
+#   - The amd64 asset name must stay byte-identical to v1.6.0's. Every install in
+#     the field looks for exactly "fleetfix-linux-x86_64".
+#   - The .sha256 sidecar must contain a bare filename. install.sh runs
+#     `sha256sum -c` from the download directory, so a "dist/" prefix in the
+#     sidecar makes verification fail on every host.
+#
+# Releases stay drafts. A draft is excluded from /releases/latest, which is what
+# the updater polls, so a tag here is invisible to the fleet until a human runs
+# `gh release edit --draft=false --latest`. -rc tags additionally get prerelease,
+# which is also excluded from /releases/latest -- that is what makes a publicly
+# downloadable canary possible with zero exposure.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build for a dry run (no upload), e.g. 2.0.0-rc0"
+        required: false
+        default: "0.0.0-dev"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # binfmt, so the arm64 binary's own --version can be asserted rather than
+      # assumed. An arch mismatch that reaches a host bricks fleetfix on it.
+      - uses: docker/setup-qemu-action@v3
+        if: matrix.goarch == 'arm64'
+        with:
+          platforms: arm64
+
+      - name: Resolve the version
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -eu
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            # The tag minus its "v" is the only source. v1 carried the version in
+            # both __init__.py and pyproject.toml, so a release meant editing two
+            # files and a missed one shipped a binary that lied about itself.
+            version="${REF_NAME#v}"
+          else
+            version="${INPUT_VERSION}"
+          fi
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
+          echo "building ${version} for ${{ matrix.goarch }}"
+
+      # The asset name comes from Go, never from this file. internal/release is the
+      # single source of truth and a name repeated in YAML is a name that drifts.
+      - name: Resolve the asset name from internal/release
+        env:
+          GOARCH_TARGET: ${{ matrix.goarch }}
+        run: |
+          set -eu
+          asset="$(go run ./internal/release/cmd/assetname "$GOARCH_TARGET")"
+          sidecar="$(go run ./internal/release/cmd/assetname -checksum "$GOARCH_TARGET")"
+          echo "ASSET=${asset}" >> "$GITHUB_ENV"
+          echo "SIDECAR=${sidecar}" >> "$GITHUB_ENV"
+          echo "asset=${asset} sidecar=${sidecar}"
+
+      # The entire auto-update continuity story in one literal comparison. If this
+      # ever fails, every v1.6.0 host silently stops finding its download.
+      - name: Assert the amd64 asset name is byte-identical to v1.6.0's
+        if: matrix.goarch == 'amd64'
+        run: |
+          set -eu
+          test "$ASSET" = "fleetfix-linux-x86_64" || {
+            echo "::error::amd64 asset is '$ASSET'; v1.6.0 installs look for 'fleetfix-linux-x86_64'"
+            exit 1
+          }
+
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -eu
+          mkdir -p dist
+          go build \
+            -trimpath \
+            -ldflags "-s -w -X github.com/KingPin/FleetFix/v2/internal/version.stamped=${VERSION}" \
+            -o "dist/${ASSET}" \
+            ./cmd/fleetfix
+
+      - name: Assert the binary is static
+        run: |
+          set -eu
+          file "dist/${ASSET}"
+          # readelf rather than ldd, which exercises the host loader on a
+          # foreign-arch binary. No DT_NEEDED entries at all is the real property.
+          if readelf -d "dist/${ASSET}" 2>/dev/null | grep -q NEEDED; then
+            echo "::error::${ASSET} links shared libraries; PyInstaller's glibc floor is exactly what this port removes"
+            readelf -d "dist/${ASSET}"
+            exit 1
+          fi
+          file "dist/${ASSET}" | grep -q 'statically linked'
+
+      - name: ldd reports no dynamic executable (amd64)
+        if: matrix.goarch == 'amd64'
+        run: |
+          out="$(ldd "dist/${ASSET}" 2>&1 || true)"
+          echo "$out"
+          echo "$out" | grep -q 'not a dynamic executable'
+
+      # Run the artifact that is about to be uploaded, not a rebuild of it. This
+      # catches an arch mismatch, a bad ldflags symbol path (which silently leaves
+      # the version unstamped) and a truncated write -- the three things that brick
+      # a host on update.
+      - name: Assert --version matches the version being released
+        run: |
+          set -eu
+          chmod +x "dist/${ASSET}"
+          got="$("./dist/${ASSET}" --version)"
+          echo "$got"
+          test "$got" = "fleetfix ${VERSION}" || {
+            echo "::error::binary reports '$got', want 'fleetfix ${VERSION}'"
+            exit 1
+          }
+
+      - name: Smoke-test check --json
+        run: |
+          set -eu
+          set +e
+          out="$("./dist/${ASSET}" check --json)"
+          code=$?
+          set -e
+          echo "$out"
+          # Exit 3 is correct for a build with no registered checks; this step exists
+          # to prove the binary runs and emits parseable JSON, not to grade a host.
+          test "$code" = "0" -o "$code" = "1" -o "$code" = "2" -o "$code" = "3" || {
+            echo "::error::check exited $code, outside the documented 0-3 range"
+            exit 1
+          }
+          echo "$out" | python3 -c 'import json,sys; json.load(sys.stdin)'
+
+      # Generated from inside dist/ so the sidecar holds a bare filename. Running
+      # `sha256sum dist/x > x.sha256` writes "dist/x" into the file, and every
+      # host's `sha256sum -c` then looks for a dist/ directory that does not exist.
+      - name: Checksum
+        working-directory: dist
+        run: |
+          set -eu
+          sha256sum "${ASSET}" > "${SIDECAR}"
+          cat "${SIDECAR}"
+
+      - name: Assert the sidecar holds a bare filename and verifies
+        working-directory: dist
+        run: |
+          set -eu
+          if grep -q '/' "${SIDECAR}"; then
+            echo "::error::${SIDECAR} contains a path; install.sh runs sha256sum -c from the download directory"
+            cat "${SIDECAR}"
+            exit 1
+          fi
+          sha256sum -c "${SIDECAR}"
+
+      - name: Assert both files exist and are non-empty
+        run: |
+          set -eu
+          for f in "dist/${ASSET}" "dist/${SIDECAR}"; do
+            test -s "$f" || { echo "::error::$f is missing or empty"; exit 1; }
+          done
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fleetfix-${{ matrix.goarch }}
+          path: |
+            dist/${{ env.ASSET }}
+            dist/${{ env.SIDECAR }}
+          if-no-files-found: error
+
+  publish:
+    # Only a tag publishes. A workflow_dispatch run is a rehearsal: it performs
+    # every assertion above and uploads nothing.
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Assert the full asset set is present and verifies together
+        working-directory: artifacts
+        run: |
+          set -eu
+          ls -l
+          for name in fleetfix-linux-x86_64 fleetfix-linux-aarch64; do
+            test -s "$name" || { echo "::error::$name missing"; exit 1; }
+            test -s "$name.sha256" || { echo "::error::$name.sha256 missing"; exit 1; }
+          done
+          # Re-verified after the artifact round-trip, because upload/download is
+          # itself a place a byte can be lost.
+          sha256sum -c fleetfix-linux-x86_64.sha256
+          sha256sum -c fleetfix-linux-aarch64.sha256
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          # Never automatic. A human runs
+          #   gh release edit <tag> --draft=false --latest
+          # after the canary rings, and until then /releases/latest -- the endpoint
+          # the updater polls -- does not see this release at all.
+          draft: true
+          # An -rc tag stays a prerelease even once published, which keeps it off
+          # /releases/latest while still being publicly downloadable for canaries.
+          prerelease: ${{ contains(github.ref_name, '-rc') }}
+          fail_on_unmatched_files: true
+          files: |
+            artifacts/fleetfix-linux-x86_64
+            artifacts/fleetfix-linux-x86_64.sha256
+            artifacts/fleetfix-linux-aarch64
+            artifacts/fleetfix-linux-aarch64.sha256
