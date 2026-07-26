@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"math"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/KingPin/FleetFix/v2/internal/core/disk"
 	"github.com/KingPin/FleetFix/v2/internal/core/network"
+	"github.com/KingPin/FleetFix/v2/internal/core/system"
 )
 
 // adapter is one entry in the manifest's language-neutral function namespace.
@@ -127,6 +129,52 @@ var dispatch = map[string]adapter{
 		}
 		return out, nil
 	}),
+
+	// system
+	"system.read_uptime": pathFS(func(fsys fs.FS, name string, _ map[string]any) (any, error) {
+		v, err := system.ReadUptime(fsys, name)
+		if err != nil {
+			return nil, systemErr(err)
+		}
+		return v, nil
+	}),
+	"system.read_loadavg": pathFS(func(fsys fs.FS, name string, _ map[string]any) (any, error) {
+		v, err := system.ReadLoadavg(fsys, name)
+		if err != nil {
+			return nil, systemErr(err)
+		}
+		return v, nil
+	}),
+	"system.read_meminfo": pathFS(func(fsys fs.FS, name string, _ map[string]any) (any, error) {
+		v, err := system.ReadMeminfo(fsys, name)
+		if err != nil {
+			return nil, systemErr(err)
+		}
+		return v, nil
+	}),
+}
+
+// systemErr names the CPython exception v1 raises for a failure the system
+// readers report as an error.
+//
+// These are the first ported functions that fail rather than returning a
+// no-answer value, so they are also the first to need the mapping. It is
+// exhaustive on purpose: an unrecognised error falls through unwrapped and is
+// recorded as GoError, which is not a code Python can produce and so cannot be
+// mistaken for a reproduced behaviour.
+func systemErr(err error) error {
+	switch {
+	case errors.Is(err, system.ErrShortFile):
+		return pyError{Code: "IndexError"}
+	case errors.Is(err, system.ErrBadNumber):
+		return pyError{Code: "ValueError"}
+	case errors.Is(err, fs.ErrNotExist):
+		return pyError{Code: "FileNotFoundError"}
+	case errors.Is(err, fs.ErrPermission):
+		return pyError{Code: "PermissionError"}
+	default:
+		return err
+	}
 }
 
 // traceArgs reads the two arguments both trace parsers take.
