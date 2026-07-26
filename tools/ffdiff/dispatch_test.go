@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -138,6 +139,102 @@ func TestRecordAdaptersKeepPythonsFieldNames(t *testing.T) {
 			}
 			if string(got) != tt.want {
 				t.Errorf("adapter marshalled to\n\t%s\nwant\n\t%s", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestEnvAdapterKeepsPythonsFieldNames pins the wire shape of the one ported
+// function whose result nests records inside a record, and the one whose result
+// carries the path it was given.
+//
+// The full path in want is the load-bearing part: both oracles redact their own
+// temp path by string equality, so a result carrying a basename would compare as
+// a divergence on every dotenv case. It also pins the absence of "ok" -- that is
+// a @property in v1 and a method here, and a field would be a key the Python side
+// never emits.
+func TestEnvAdapterKeepsPythonsFieldNames(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "e.env")
+	if err := os.WriteFile(path, []byte("A=1\nA=2\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	v, err := dispatch["storage.check_env_file"].run(path, map[string]any{
+		"required_keys": []any{"A", "B"},
+	})
+	if err != nil {
+		t.Fatalf("adapter returned %v", err)
+	}
+	got, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshalling the adapter's value: %v", err)
+	}
+	want := `{"path":"` + path + `","exists":true,"readable":true,"keys":{"A":"2"},` +
+		`"missing_required":["B"],"issues":[{"line_no":2,"raw":"A=2","message":"duplicate key: A"}]}`
+	if string(got) != want {
+		t.Errorf("adapter marshalled to\n\t%s\nwant\n\t%s", got, want)
+	}
+}
+
+// TestSHA256AdapterReturnsPythonsNone covers the other half of a two-value return.
+func TestSHA256AdapterReturnsPythonsNone(t *testing.T) {
+	args := map[string]any{"asset_name": "fleetfix-linux-x86_64"}
+	tests := []struct {
+		name string
+		text string
+		want any
+	}{
+		{"match", "abc  fleetfix-linux-x86_64\n", "abc"},
+		// None, not "": an empty digest would go on to be compared against a real
+		// hash, so the two answers have to stay distinguishable on the wire.
+		{"no match", "abc  some-other-file\n", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := dispatch["updater.parse_sha256_line"].run(tt.text, args)
+			if err != nil {
+				t.Fatalf("adapter returned %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("adapter on %q = %#v, want %#v", tt.text, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestOptStrListArg covers the reader for an argument py_oracle reads with .get():
+// absent is a legitimate None, but a present one that is the wrong shape is the
+// two dispatch tables disagreeing and has to fail the case.
+func TestOptStrListArg(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    map[string]any
+		want    []string
+		wantErr bool
+	}{
+		{name: "absent", args: map[string]any{}},
+		{name: "nil args", args: nil},
+		{name: "explicit null", args: map[string]any{"required_keys": nil}},
+		{name: "empty list", args: map[string]any{"required_keys": []any{}}, want: []string{}},
+		{
+			// Order and duplicates both reach the result, so neither may be tidied.
+			name: "order and duplicates",
+			args: map[string]any{"required_keys": []any{"Z", "A", "A"}},
+			want: []string{"Z", "A", "A"},
+		},
+		{name: "not a list", args: map[string]any{"required_keys": "A"}, wantErr: true},
+		{name: "not strings", args: map[string]any{"required_keys": []any{"A", 1.0}}, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := optStrListArg(tt.args, "required_keys")
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("optStrListArg(%v) error = %v, wantErr %v", tt.args, err, tt.wantErr)
+			}
+			if err != nil {
+				return
+			}
+			if fmt.Sprint(got) != fmt.Sprint(tt.want) || (got == nil) != (tt.want == nil) {
+				t.Errorf("optStrListArg(%v) = %#v, want %#v", tt.args, got, tt.want)
 			}
 		})
 	}

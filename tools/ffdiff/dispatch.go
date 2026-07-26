@@ -13,7 +13,9 @@ import (
 	"github.com/KingPin/FleetFix/v2/internal/core/logsqueeze"
 	"github.com/KingPin/FleetFix/v2/internal/core/network"
 	"github.com/KingPin/FleetFix/v2/internal/core/services"
+	"github.com/KingPin/FleetFix/v2/internal/core/storage"
 	"github.com/KingPin/FleetFix/v2/internal/core/system"
+	"github.com/KingPin/FleetFix/v2/internal/updater"
 )
 
 // adapter is one entry in the manifest's language-neutral function namespace.
@@ -42,6 +44,16 @@ func pathFS(fn func(fs.FS, string, map[string]any) (any, error)) adapter {
 	return adapter{input: "path", run: func(p string, args map[string]any) (any, error) {
 		return fn(os.DirFS(filepath.Dir(p)), filepath.Base(p), args)
 	}}
+}
+
+// wholePath wraps an adapter for a function that takes a path and reports it back.
+//
+// The path must reach it undivided. Both oracles redact their own temp path by
+// comparing result strings against it for equality, so a function handed a
+// basename returns a basename, nothing matches the redaction, and every case for
+// it diverges on a difference that is only the tempdir's name.
+func wholePath(fn func(string, map[string]any) (any, error)) adapter {
+	return adapter{input: "path", run: fn}
 }
 
 // dispatch mirrors py_oracle.py's DISPATCH, one entry per ported function.
@@ -163,6 +175,15 @@ var dispatch = map[string]adapter{
 		return services.ParseBlame(t), nil
 	}),
 
+	// storage
+	"storage.check_env_file": wholePath(func(p string, args map[string]any) (any, error) {
+		required, err := optStrListArg(args, "required_keys")
+		if err != nil {
+			return nil, err
+		}
+		return storage.CheckEnvFile(p, required), nil
+	}),
+
 	// system
 	"system.read_uptime": pathFS(func(fsys fs.FS, name string, _ map[string]any) (any, error) {
 		v, err := system.ReadUptime(fsys, name)
@@ -197,6 +218,21 @@ var dispatch = map[string]adapter{
 	"system.parse_apt_upgradable": text(func(t string, _ map[string]any) (any, error) {
 		u, s := system.ParseAptUpgradable(t)
 		return []int64{u, s}, nil
+	}),
+
+	// updater
+	"updater.parse_sha256_line": text(func(t string, args map[string]any) (any, error) {
+		asset, err := strArg(args, "asset_name")
+		if err != nil {
+			return nil, err
+		}
+		// Python returns None when no line names the asset. An empty string would
+		// be a digest the caller then fails to match, which is the same refusal
+		// wearing the wrong reason.
+		if v, ok := updater.ParseSHA256Line(t, asset); ok {
+			return v, nil
+		}
+		return nil, nil
 	}),
 }
 
@@ -252,6 +288,34 @@ func strArg(args map[string]any, key string) (string, error) {
 		return "", fmt.Errorf("manifest argument %q is %T, want a string", key, v)
 	}
 	return s, nil
+}
+
+// optStrListArg reads a manifest argument the Python side reads with a .get(), so
+// an absent one is a legitimate None rather than a signature disagreement.
+//
+// Absent becomes a nil slice, which is what a Python None means to the functions
+// that take one: nothing was asked for. A present-but-wrong argument is still an
+// error, because that is the two tables drifting.
+func optStrListArg(args map[string]any, key string) ([]string, error) {
+	v, ok := args[key]
+	if !ok || v == nil {
+		return nil, nil
+	}
+	items, ok := v.([]any)
+	if !ok {
+		return nil, fmt.Errorf("manifest argument %q is %T, want a list", key, v)
+	}
+	// Length-preserving rather than deduplicated or sorted: the order of this list
+	// and its duplicates both survive into the result the comparison sees.
+	out := make([]string, 0, len(items))
+	for i, item := range items {
+		s, ok := item.(string)
+		if !ok {
+			return nil, fmt.Errorf("manifest argument %q[%d] is %T, want a string", key, i, item)
+		}
+		out = append(out, s)
+	}
+	return out, nil
 }
 
 // intArg reads a whole-number manifest argument. JSON has one number type, so
