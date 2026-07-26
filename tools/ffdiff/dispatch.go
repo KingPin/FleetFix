@@ -78,6 +78,17 @@ var dispatch = map[string]adapter{
 	"net.parse_ss_output": text(func(t string, _ map[string]any) (any, error) {
 		return network.ParseSSOutput(t), nil
 	}),
+	"net.parse_curl_output": text(func(t string, args map[string]any) (any, error) {
+		url, err := strArg(args, "url")
+		if err != nil {
+			return nil, err
+		}
+		// Python returns None when the template is absent or unusable.
+		if v, ok := network.ParseCurlOutput(url, t); ok {
+			return v, nil
+		}
+		return nil, nil
+	}),
 }
 
 // traceArgs reads the two arguments both trace parsers take.
