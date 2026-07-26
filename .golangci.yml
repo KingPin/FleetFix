@@ -62,10 +62,15 @@ linters:
                 rather than returning an error; production comparisons must not
                 depend on it
 
+        # tools/ is exempt because the constraint is about the shipped decoder:
+        # operator-facing YAML must stay behind one package so swapping decoders
+        # is a one-file change. The differential harness is developer-only and is
+        # deleted with the Python at M7.
         yaml-only-in-config:
           list-mode: lax
           files:
             - "!**/internal/config/**"
+            - "!**/tools/**"
           deny:
             - pkg: gopkg.in/yaml.v3
               desc: >-
@@ -100,6 +105,23 @@ linters:
       # actual output are checked: the report goes through checkcmd.Run, which
       # returns its encoder's error, and `--version` checks its own Fprintf.
       - path: internal/cli/
+        linters: [errcheck]
+        text: "fmt\\.Fprint"
+
+      # The differential harness is a developer CLI whose inputs are paths given
+      # on the command line -- the manifest, the testdata root, the two oracle
+      # outputs. G304 is describing what the tool is for, and the operator is the
+      # person who typed the path. G703 is the same flags reaching the temp copy a
+      # path-input case is handed, which filepath.Base has already stripped of
+      # directories. It never runs on a host and is deleted with the Python at M7.
+      - path: tools/
+        linters: [gosec]
+        text: "G(30[43]|703)"
+      # Same reasoning as internal/cli: the summary is a diagnostic stream, and a
+      # failed write to it has nowhere left to be reported. The outputs that get
+      # consumed are checked -- the JSON report goes through os.WriteFile, and the
+      # verdict CI acts on is the exit status, not the text.
+      - path: tools/
         linters: [errcheck]
         text: "fmt\\.Fprint"
 

@@ -120,6 +120,10 @@ jobs:
           internal/logging=95
           internal/release=95
           internal/version=90
+          # Not shipped, but the differential harness is what proves the forty
+          # parsers match Python -- a comparator with a hole in it passes
+          # everything and says so confidently.
+          tools/ffdiff=85
           "
           # One pass over the profile, weighted over statements, grouped by package
           # directory. Read from the profile rather than from `go tool cover -func`:
