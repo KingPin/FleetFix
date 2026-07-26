@@ -1,0 +1,17 @@
+# Numbers past what a machine word holds. count is an integer of 24 digits, which
+# Python compares exactly and must not be allowed to wrap on the way to the clamp;
+# max_hops is a float far outside int64, where int() is exact and int64() is not.
+#
+# The exponents carry explicit signs deliberately: PyYAML 1.1 only resolves a float
+# when the mantissa has a dot AND the exponent has a sign, so `1.0e30` here would be
+# the *string* "1.0e30" and would test the wrong thing.
+ping:
+  count: 100000000000000000000000
+  interval_s: 1.0e+400
+dns:
+  timeout_s: -1.0e+400
+http:
+  max_redirects: -1.0e+40
+traceroute:
+  max_hops: 1.0e+30
+  queries: -9223372036854775809

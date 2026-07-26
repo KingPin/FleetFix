@@ -229,6 +229,13 @@ var dispatch = map[string]adapter{
 		}
 		return out, nil
 	}),
+	// Only the resolved Probes is compared. v1 logs its clamp/reject warnings
+	// rather than returning them, so the second return value has no counterpart on
+	// the Python side; probes_test.go pins those instead.
+	"net.load_probes": wholePath(func(p string, _ map[string]any) (any, error) {
+		v, _ := network.LoadProbes(p)
+		return v, nil
+	}),
 
 	// services
 	"services.parse_failed_units": text(func(t string, _ map[string]any) (any, error) {

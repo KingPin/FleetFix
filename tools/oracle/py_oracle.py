@@ -41,6 +41,7 @@ import argparse
 import dataclasses
 import enum
 import json
+import math
 import sys
 import tempfile
 from collections.abc import Callable
@@ -62,6 +63,7 @@ from fleetfix.modules.network import (  # noqa: E402
     curl_probe,
     interfaces,
     ping,
+    probes,
     resolver,
     sockets,
     tcp,
@@ -144,6 +146,10 @@ DISPATCH: dict[str, Adapter] = {
     "net.parse_ss_output": lambda t, a: sockets.parse_ss_output(t),
     "net.read_counters": lambda p, a: interfaces.read_counters(p),
     "net.default_route": lambda p, a: interfaces.default_route(p),
+    # Only the resolved Probes is compared. The clamp/reject warnings go to the
+    # logger rather than the return value, so there is nothing here for the harness
+    # to compare them against; the Go side pins them in a unit test instead.
+    "net.load_probes": lambda p, a: probes.load_probes(path=p),
     # docker
     "docker.parse_reclaimed_total": lambda t, a: docker_hygiene.parse_reclaimed_total(t),
     "docker.parse_ps_json_lines": lambda t, a: docker_dashboard.parse_ps_json_lines(t),
@@ -184,6 +190,16 @@ def plain(value: Any) -> Any:
     JSON with its identity intact, and an arbitrary set order would show up as a
     divergence that is not one.
     """
+    if isinstance(value, float) and not math.isfinite(value):
+        # json.dumps writes the JavaScript-flavoured Infinity/NaN words, which Go's
+        # decoder refuses outright -- so a `.inf` in a config file, which YAML 1.1
+        # allows and probes.yml can therefore contain, would take the whole harness
+        # down rather than being compared. Both sides spell a non-finite float as a
+        # tagged string instead: still strict JSON, and a +inf that turns into a
+        # -inf is still a divergence.
+        if math.isnan(value):
+            return "<nan>"
+        return "<+inf>" if value > 0 else "<-inf>"
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
     if isinstance(value, enum.Enum):

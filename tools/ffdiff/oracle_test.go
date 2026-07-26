@@ -4,12 +4,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/KingPin/FleetFix/v2/internal/fixture"
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestRunDispatchesModes(t *testing.T) {
@@ -342,6 +344,33 @@ func TestRedactRewritesOnlyTheInputPath(t *testing.T) {
 	}
 	if got["n"] != json.Number("1") {
 		t.Errorf("redact altered a non-string: %v", got["n"])
+	}
+}
+
+// The pairing to py_oracle's plain(): a non-finite float has to survive the trip
+// as something strict JSON can hold, because Go's decoder cannot read the
+// Infinity/NaN words Python's json.dumps writes and probes.yml is allowed to say
+// `.inf`. Each sign gets its own tag so a +inf turning into a -inf still fails.
+func TestCanonicalTagsNonFiniteFloats(t *testing.T) {
+	got, err := canonical(map[string]any{
+		"pos":    math.Inf(1),
+		"neg":    math.Inf(-1),
+		"nan":    math.NaN(),
+		"finite": 1.5,
+		"nested": []any{math.Inf(1), "x"},
+	})
+	if err != nil {
+		t.Fatalf("canonical: %v", err)
+	}
+	want := map[string]any{
+		"pos":    "<+inf>",
+		"neg":    "<-inf>",
+		"nan":    "<nan>",
+		"finite": json.Number("1.5"),
+		"nested": []any{"<+inf>", "x"},
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("canonical mismatch (-want +got):\n%s", diff)
 	}
 }
 

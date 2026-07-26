@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -218,11 +219,50 @@ func errorRecord(id string, e recordError) map[string]any {
 // that drifts from the Python field name shows up as a divergence rather than
 // being quietly papered over here.
 func canonical(v any) (any, error) {
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(sanitiseNonFinite(v))
 	if err != nil {
 		return nil, err
 	}
 	return decodeValue(b)
+}
+
+// sanitiseNonFinite replaces ±Inf and NaN with a tagged string, matching the same
+// branch in py_oracle's plain().
+//
+// encoding/json refuses to encode a non-finite float, and its decoder refuses to
+// read the Infinity/NaN words Python's json.dumps writes in their place -- so a
+// `.inf` in a config file, which YAML 1.1 allows and probes.yml can therefore
+// contain, would abort the oracle rather than being compared. A tag keeps both
+// files strict JSON while still failing if a +inf turns into a -inf.
+//
+// Plain trees only, which is where a parsed config file arrives. A struct passes
+// through untouched, so a non-finite float reached through one still fails loudly
+// at Marshal rather than being quietly half-handled.
+func sanitiseNonFinite(v any) any {
+	switch t := v.(type) {
+	case float64:
+		switch {
+		case math.IsNaN(t):
+			return "<nan>"
+		case math.IsInf(t, 1):
+			return "<+inf>"
+		case math.IsInf(t, -1):
+			return "<-inf>"
+		}
+		return t
+	case map[string]any:
+		for k, elem := range t {
+			t[k] = sanitiseNonFinite(elem)
+		}
+		return t
+	case []any:
+		for i, elem := range t {
+			t[i] = sanitiseNonFinite(elem)
+		}
+		return t
+	default:
+		return v
+	}
 }
 
 // redact replaces the temp input path wherever it surfaced in a result, matching

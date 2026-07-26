@@ -1,0 +1,11 @@
+# The escape hatch: an empty list is "no presets on this box", not "use ours". A host
+# behind an egress filter needs to be able to turn a whole probe off, and truthiness
+# would have silently given it the defaults back.
+ping:
+  targets: []
+dns:
+  names: []
+http:
+  urls: []
+tcp:
+  targets: []

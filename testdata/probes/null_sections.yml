@@ -1,0 +1,10 @@
+# A section is silent when it is absent or null, and warns when it is present and not
+# a mapping. Note the asymmetry with a null *list* one level down: `ping: null` is
+# absent, `targets: null` is present-and-wrong.
+ping: null
+dns:
+  names: null
+http: []
+tcp: "github.com:443"
+traceroute: 5
+ladder:

@@ -1,0 +1,25 @@
+# What ends up in a target list when a human edits YAML by hand. Every entry goes
+# through str() and strip(), so the bare integer survives as "8080" and the extra
+# dash -- a list nested inside the list -- survives as its repr, which is a target
+# name no resolver will ever answer for. Empty and whitespace-only entries drop out.
+ping:
+  targets:
+    - "  10.0.0.1  "
+    - 8080
+    - ""
+    - "   "
+    - true
+    - null
+    - - 8.8.8.8
+      - 1.1.1.1
+dns:
+  names:
+    - 1.5
+tcp:
+  targets:
+    - db.corp.internal:5432
+    - "[2001:db8::1]:443"
+    - no-port-here
+    - "host:notaport"
+    - https://api.corp.internal
+    - 8080

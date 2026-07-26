@@ -1,0 +1,4 @@
+# One knob. Everything else must stay at its default -- scalars merge per-key, so
+# "shorter ping" must not also mean "no interval and no dns names".
+ping:
+  count: 3
