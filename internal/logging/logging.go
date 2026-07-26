@@ -91,9 +91,11 @@ type Options struct {
 	// missing diagnostic, and the operator can always add --log-file.
 	TUIAttached bool
 
-	// Stderr overrides the stream used when nothing else applies. Nil means
-	// os.Stderr. Only tests should set it; it exists so a test can prove nothing
-	// was written rather than assert it.
+	// Stderr is the stream used when nothing else applies. Nil means os.Stderr.
+	//
+	// Injected rather than assumed because internal/cli already receives the
+	// process's streams from cmd/fleetfix and must not reach around them, and
+	// because it lets a test prove nothing was written rather than assert it.
 	Stderr io.Writer
 }
 

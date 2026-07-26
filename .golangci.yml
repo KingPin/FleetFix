@@ -78,6 +78,15 @@ linters:
       - path: internal/cmdrun/
         linters: [gosec]
         text: "G204"
+      # Usage text and diagnostics written to the caller's stream. A failed write to
+      # a diagnostic stream has nowhere left to be reported -- complaining about it
+      # would use the same stream that just refused a write. The writes that carry
+      # actual output are checked: the report goes through checkcmd.Run, which
+      # returns its encoder's error, and `--version` checks its own Fprintf.
+      - path: internal/cli/
+        linters: [errcheck]
+        text: "fmt\\.Fprint"
+
       - path: _test\.go$
         linters: [gosec, unparam, errcheck]
 
