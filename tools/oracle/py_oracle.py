@@ -146,6 +146,7 @@ DISPATCH: dict[str, Adapter] = {
     "net.parse_ss_output": lambda t, a: sockets.parse_ss_output(t),
     "net.read_counters": lambda p, a: interfaces.read_counters(p),
     "net.default_route": lambda p, a: interfaces.default_route(p),
+    "net.operstate": lambda p, a: interfaces.operstate(a["iface"], root=p),
     # Only the resolved Probes is compared. The clamp/reject warnings go to the
     # logger rather than the return value, so there is nothing here for the harness
     # to compare them against; the Go side pins them in a unit test instead.

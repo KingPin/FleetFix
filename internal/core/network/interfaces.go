@@ -2,6 +2,7 @@ package network
 
 import (
 	"io/fs"
+	"path"
 	"strconv"
 	"strings"
 
@@ -9,11 +10,29 @@ import (
 	"github.com/KingPin/FleetFix/v2/internal/pytext"
 )
 
-// Where the two readers below look under a Host's Proc root.
+// Where the readers below look, relative to a Host's Proc and Sys roots.
 const (
 	ProcNetRoute = "net/route"
 	ProcNetDev   = "net/dev"
+	SysClassNet  = "class/net"
 )
+
+// Info is a snapshot of the default-route interface: what this box uses to reach
+// anything that is not itself. v1 calls this NetworkInfo; network.NetworkInfo
+// stutters at every call site, so the package name carries that half of the word.
+//
+// IPv4 and Gateway are pointers because "no address" and "no gateway" are answers
+// a healthy interface can give, and both are reported rather than guessed at -- a
+// link-local-only interface has no IPv4, and neither does one whose address the
+// kernel has not assigned yet.
+type Info struct {
+	Iface     string  `json:"iface"`
+	IPv4      *string `json:"ipv4"`
+	Gateway   *string `json:"gateway"`
+	Operstate string  `json:"operstate"`
+	RxBytes   int64   `json:"rx_bytes"`
+	TxBytes   int64   `json:"tx_bytes"`
+}
 
 // Counters is one interface's cumulative byte totals.
 //
@@ -137,4 +156,21 @@ func ReadCounters(fsys fs.FS, name string) map[string]Counters {
 		out[strings.TrimFunc(head, pytext.IsSpace)] = Counters{RxBytes: rx, TxBytes: tx}
 	}
 	return out
+}
+
+// Operstate reads /sys/class/net/<iface>/operstate: "up", "down", "unknown", and a
+// handful of transitional words the kernel also writes.
+//
+// An unreadable file is "unknown", not "down". The distinction is load-bearing
+// rather than cosmetic: "unknown" is also what the kernel writes for a link that
+// is up and passing traffic but whose driver never reports carrier -- wireguard,
+// tun/tap, some virtio -- so it must not be gradeable as a failure, and this
+// fallback deliberately joins that set instead of inventing a verdict from a
+// missing file. See the link rung in ladder.go for the other half of the rule.
+func Operstate(fsys fs.FS, dir, iface string) string {
+	state, err := hostfs.ReadTrimmed(fsys, path.Join(dir, iface, "operstate"))
+	if err != nil {
+		return "unknown"
+	}
+	return state
 }

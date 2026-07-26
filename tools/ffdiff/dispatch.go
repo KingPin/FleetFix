@@ -229,6 +229,19 @@ var dispatch = map[string]adapter{
 		}
 		return out, nil
 	}),
+	// One case per interface directory rather than one per fixture: operstate takes a
+	// single name, and the interesting inputs are all sibling entries in the same
+	// /sys/class/net -- a missing file, a directory where the file should be, a name
+	// that is not there at all. One tree holds them; the argument picks.
+	"net.operstate": treeFS(func(fsys fs.FS, args map[string]any) (any, error) {
+		iface, err := strArg(args, "iface")
+		if err != nil {
+			return nil, err
+		}
+		// "." because the oracle materialised the tree as the class/net directory
+		// itself; the shipping caller passes hostfs Sys plus SysClassNet.
+		return network.Operstate(fsys, ".", iface), nil
+	}),
 	// Only the resolved Probes is compared. v1 logs its clamp/reject warnings
 	// rather than returning them, so the second return value has no counterpart on
 	// the Python side; probes_test.go pins those instead.

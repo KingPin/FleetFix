@@ -336,6 +336,59 @@ func checkCounters(t *testing.T, got map[string]Counters) {
 	}
 }
 
+// TestOperstateFixtures walks the one captured /sys/class/net the manifest holds.
+//
+// Expectations measured by running v1's operstate() against the same tree, so the
+// three shapes that all collapse to "unknown" -- no operstate file, a directory
+// where the file should be, an interface name that is not there -- are pinned as
+// what v1 does rather than as what the fallback looks like it should do.
+func TestOperstateFixtures(t *testing.T) {
+	fsys := fixture.Tree(t, "net/operstate.json")
+
+	for _, tt := range []struct {
+		iface, want string
+	}{
+		{"eth0", "up"},
+		{"eth1", "down"},
+		{"wg0", "unknown"},
+		// The trailing newline is not the only thing stripped: v1 spells this
+		// read_text().strip(), so leading padding and the ASCII separators go too.
+		{"lo", "up"},
+		{"sep", "up"},
+		// An empty file is "", not "unknown". A reader that conflated the two would
+		// grade a driver that wrote nothing the same as one that wrote a word it did
+		// not recognise, and the ladder's link rung treats "" as passing.
+		{"empty", ""},
+		{"blank", ""},
+		{"nofile", "unknown"},
+		{"isdir", "unknown"},
+		{"regular", "unknown"},
+		{"enp0s31f6", "unknown"},
+	} {
+		if got := Operstate(fsys, ".", tt.iface); got != tt.want {
+			t.Errorf("Operstate(%q) = %q, want %q", tt.iface, got, tt.want)
+		}
+	}
+}
+
+// TestOperstateOnAnEmptyFilesystem covers the shipping root being absent entirely:
+// a container with no /sys/class/net at all, which is not an error to report.
+func TestOperstateOnAnEmptyFilesystem(t *testing.T) {
+	if got := Operstate(fstest.MapFS{}, SysClassNet, "eth0"); got != "unknown" {
+		t.Errorf("Operstate() = %q, want %q", got, "unknown")
+	}
+}
+
+// TestOperstateRejectsAnAbsolutePath pins the hostfs contract at this call site: an
+// fs.FS name is relative, and a caller that passed "/sys/class/net" gets "unknown"
+// rather than a path error surfacing to an operator as a broken link.
+func TestOperstateRejectsAnAbsolutePath(t *testing.T) {
+	fsys := fixture.Tree(t, "net/operstate.json")
+	if got := Operstate(fsys, "/", "eth0"); got != "unknown" {
+		t.Errorf("Operstate() = %q, want %q", got, "unknown")
+	}
+}
+
 func FuzzDefaultRoute(f *testing.F) {
 	for _, name := range []string{
 		"proc/net/route_with_default.txt", "proc/net/route_no_default.txt",

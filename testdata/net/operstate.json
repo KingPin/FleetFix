@@ -1,0 +1,12 @@
+{
+  "eth0": { "operstate": "up\n" },
+  "eth1": { "operstate": "down\n" },
+  "wg0": { "operstate": "unknown\n" },
+  "lo": { "operstate": "  up  \n" },
+  "sep": { "operstate": "\u001cup\u001f" },
+  "empty": { "operstate": "" },
+  "blank": { "operstate": "\n\n" },
+  "nofile": {},
+  "isdir": { "operstate": {} },
+  "regular": "a regular file where an interface directory should be"
+}

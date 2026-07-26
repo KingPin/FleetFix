@@ -29,6 +29,17 @@
 {"id": "lsof.open_read_only", "fn": "logsqueeze.lsof_has_writer", "fixture": "lsof/open_read_only.txt", "sha256": "3b242e643216e36331677b5097981d8cc7ad3b43e5336d57e0e517a4dcc33947", "input": "text", "args": {}}
 {"id": "lsof.open_rw_mode", "fn": "logsqueeze.lsof_has_writer", "fixture": "lsof/open_rw_mode.txt", "sha256": "c9d88894f3cb0ddeb1403bc237290d87c805cd743fe6ee0739a6b90884f98747", "input": "text", "args": {}}
 {"id": "lsof.open_writer", "fn": "logsqueeze.lsof_has_writer", "fixture": "lsof/open_writer.txt", "sha256": "084fca177a36b38eebebcdf6c1fde5d6c3aa153afd528738ac197f4cbe7636e7", "input": "text", "args": {}}
+{"id": "net.operstate", "fn": "net.operstate", "fixture": "net/operstate.json", "sha256": "620b0ff76e7620b31c4bb0d5664dd1218e3d0123562be8ae8864283891f5c818", "input": "tree", "args": {"iface": "eth0"}}
+{"id": "net.operstate#down", "fn": "net.operstate", "fixture": "net/operstate.json", "sha256": "620b0ff76e7620b31c4bb0d5664dd1218e3d0123562be8ae8864283891f5c818", "input": "tree", "args": {"iface": "eth1"}}
+{"id": "net.operstate#unknown", "fn": "net.operstate", "fixture": "net/operstate.json", "sha256": "620b0ff76e7620b31c4bb0d5664dd1218e3d0123562be8ae8864283891f5c818", "input": "tree", "args": {"iface": "wg0"}}
+{"id": "net.operstate#padded", "fn": "net.operstate", "fixture": "net/operstate.json", "sha256": "620b0ff76e7620b31c4bb0d5664dd1218e3d0123562be8ae8864283891f5c818", "input": "tree", "args": {"iface": "lo"}}
+{"id": "net.operstate#separators", "fn": "net.operstate", "fixture": "net/operstate.json", "sha256": "620b0ff76e7620b31c4bb0d5664dd1218e3d0123562be8ae8864283891f5c818", "input": "tree", "args": {"iface": "sep"}}
+{"id": "net.operstate#empty", "fn": "net.operstate", "fixture": "net/operstate.json", "sha256": "620b0ff76e7620b31c4bb0d5664dd1218e3d0123562be8ae8864283891f5c818", "input": "tree", "args": {"iface": "empty"}}
+{"id": "net.operstate#blank", "fn": "net.operstate", "fixture": "net/operstate.json", "sha256": "620b0ff76e7620b31c4bb0d5664dd1218e3d0123562be8ae8864283891f5c818", "input": "tree", "args": {"iface": "blank"}}
+{"id": "net.operstate#nofile", "fn": "net.operstate", "fixture": "net/operstate.json", "sha256": "620b0ff76e7620b31c4bb0d5664dd1218e3d0123562be8ae8864283891f5c818", "input": "tree", "args": {"iface": "nofile"}}
+{"id": "net.operstate#isdir", "fn": "net.operstate", "fixture": "net/operstate.json", "sha256": "620b0ff76e7620b31c4bb0d5664dd1218e3d0123562be8ae8864283891f5c818", "input": "tree", "args": {"iface": "isdir"}}
+{"id": "net.operstate#regular", "fn": "net.operstate", "fixture": "net/operstate.json", "sha256": "620b0ff76e7620b31c4bb0d5664dd1218e3d0123562be8ae8864283891f5c818", "input": "tree", "args": {"iface": "regular"}}
+{"id": "net.operstate#absent", "fn": "net.operstate", "fixture": "net/operstate.json", "sha256": "620b0ff76e7620b31c4bb0d5664dd1218e3d0123562be8ae8864283891f5c818", "input": "tree", "args": {"iface": "enp0s31f6"}}
 {"id": "otel.endpoint_and_headers", "fn": "audit.load_otel_config", "fixture": "otel/endpoint_and_headers.yml", "sha256": "6e3658ff411ee0cbe1d8155f902de0ff46793badeda47a4d79bd2a76b09dd9ec", "input": "path", "args": {"env": {}}}
 {"id": "otel.full", "fn": "audit.load_otel_config", "fixture": "otel/full.yml", "sha256": "995cad478d94583419fce6f8c375cda51849a093cfd780ac4aa138c67ac4bf10", "input": "path", "args": {"env": {}}}
 {"id": "otel.malformed", "fn": "audit.load_otel_config", "fixture": "otel/malformed.yml", "sha256": "5a150d4b9b62da1cba1144d13012479b9827e828025dda14c27e417997ebfe5e", "input": "path", "args": {"env": {}}}
