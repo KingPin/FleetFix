@@ -1,0 +1,280 @@
+# Go CI. This is the gate that did not exist for v1: lint-test.yml shipped
+# disabled by filename and build.yml only ever fired on a tag, so every local
+# `ruff`/`pytest` run was the entire quality bar. Landing this before the first
+# parser is deliberate -- a port that accumulates unverified code has nothing for
+# the differential harness to hang off.
+#
+# None of it means anything without branch protection requiring these checks.
+# That part is a repository setting, not a file in this directory.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned rather than floating: a lint release that adds a check would otherwise
+  # turn an unrelated PR red, and the fix would land under time pressure.
+  GOLANGCI_LINT_VERSION: v2.12.2
+  GOFUMPT_VERSION: v0.10.0
+  # Pinned for the same reason, with one honest caveat: govulncheck reads a live
+  # vulnerability database, so this job is non-hermetic whatever version runs. The
+  # pin fixes the tool's behaviour, not its verdict -- a new advisory can still
+  # redden an untouched PR, and that is the job working correctly.
+  GOVULNCHECK_VERSION: v1.1.4
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: gofumpt
+        run: |
+          go install mvdan.cc/gofumpt@${GOFUMPT_VERSION}
+          # -extra merges adjacent same-type parameters, which is the repo's
+          # existing style; without it CI and a local run disagree.
+          unformatted="$(gofumpt -extra -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofumpt -extra would rewrite:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          args: --timeout=5m
+
+      - name: go vet
+        run: go vet ./...
+
+      # A tidy-diff rather than `go mod tidy` followed by a git diff: the former
+      # reports the change without writing it, so the job cannot pass by mutating
+      # the checkout.
+      - name: go mod tidy is up to date
+        run: go mod tidy -diff
+
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}
+          govulncheck ./...
+
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go test -race
+        run: go test -race -count=1 -coverprofile=coverage.out -covermode=atomic ./...
+
+      # Per-package floors, not one global percentage. A single repo-wide number
+      # lets the TUI's verbosity mask a thinly-tested parser, which is exactly the
+      # package where a gap costs a wrong verdict on someone's host.
+      #
+      # A floor for a package that does not exist yet is reported as skipped rather
+      # than passing quietly -- a silently-unenforced floor is worse than none,
+      # because it reads as covered.
+      - name: Coverage floors
+        run: |
+          set -eu
+          floors="
+          internal/core=85
+          internal/audit=90
+          internal/updater=85
+          internal/cli=90
+          internal/cmdrun=95
+          internal/hostfs=95
+          internal/logging=95
+          internal/release=95
+          internal/version=90
+          "
+          fail=0
+          for entry in $floors; do
+            pkg="${entry%=*}"
+            min="${entry#*=}"
+            # Weighted over statements, read from the profile rather than from
+            # `go tool cover -func`. That command prints a percentage per function,
+            # and averaging those would weight a one-line accessor the same as a
+            # hundred-line parser.
+            #
+            # Profile rows are: file.go:startLine.col,endLine.col numStmts count
+            #
+            # cmd/ subtrees are excluded. A main package is stream wiring around an
+            # os.Exit, which cannot be covered in-process at all; leaving it in would
+            # let two uncoverable lines hold a well-tested package below its floor.
+            # Those binaries are proven by the smoke and release jobs actually
+            # running them, which is stronger than a coverage number.
+            pct="$(awk -v pkg="/${pkg}/" '
+              $0 ~ /^mode:/ { next }
+              index($1, "/cmd/") { next }
+              index($1, pkg) {
+                total += $2
+                if ($3 > 0) { covered += $2 }
+              }
+              END {
+                if (total == 0) { print "none"; exit }
+                printf "%.1f", 100 * covered / total
+              }' coverage.out)"
+            if [ "$pct" = "none" ]; then
+              echo "::notice::no coverage rows for ${pkg}; floor of ${min}% not enforced (package does not exist yet)"
+              continue
+            fi
+            if awk -v a="$pct" -v b="$min" 'BEGIN { exit !(a + 0 >= b + 0) }'; then
+              echo "ok  ${pkg}: ${pct}% (floor ${min}%)"
+            else
+              echo "::error::${pkg}: ${pct}% is below the ${min}% floor"
+              fail=1
+            fi
+          done
+          exit "$fail"
+
+  fuzz:
+    # A short smoke, not a fuzzing campaign. Its job is to catch a target that no
+    # longer compiles or that fails on its own seed corpus -- the two ways a fuzz
+    # target silently stops testing anything.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Fuzz every target briefly
+        run: |
+          set -eu
+          found=0
+          for pkg in $(go list ./...); do
+            targets="$(go test -list='Fuzz.*' "$pkg" 2>/dev/null | grep '^Fuzz' || true)"
+            for target in $targets; do
+              found=$((found + 1))
+              echo "--- $pkg $target"
+              go test -run='^$' -fuzz="^${target}\$" -fuzztime=15s "$pkg"
+            done
+          done
+          # Announced rather than assumed: a discovery loop that quietly finds
+          # nothing is indistinguishable from a passing fuzz run.
+          echo "fuzzed ${found} target(s)"
+
+  build:
+    # The static-linking claim, checked per architecture. PyInstaller pinned v1 to
+    # a glibc floor and needed a writable /tmp; if these binaries are not actually
+    # static then the whole reason for the port is unverified.
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+        run: go build -trimpath -o fleetfix ./cmd/fleetfix
+
+      - name: Assert the binary is static
+        run: |
+          set -eu
+          file fleetfix
+          # readelf works across architectures, which ldd does not reliably do: a
+          # foreign-arch binary makes ldd exercise the host's loader. A static ELF
+          # has no DT_NEEDED entries at all.
+          if readelf -d fleetfix 2>/dev/null | grep -q NEEDED; then
+            echo "::error::fleetfix (${{ matrix.goarch }}) links shared libraries:"
+            readelf -d fleetfix
+            exit 1
+          fi
+          file fleetfix | grep -q 'statically linked' || {
+            echo "::error::file(1) does not call the binary statically linked"
+            exit 1
+          }
+
+      # The plan's exit gate names this exact string, so it is asserted literally
+      # on the architecture where ldd is trustworthy.
+      - name: ldd reports no dynamic executable (amd64)
+        if: matrix.goarch == 'amd64'
+        run: |
+          out="$(ldd fleetfix 2>&1 || true)"
+          echo "$out"
+          echo "$out" | grep -q 'not a dynamic executable'
+
+  smoke:
+    # Runs the amd64 binary on the oldest glibc we support and on musl, as root and
+    # as an unprivileged user. v1 could not do this at all: the PyInstaller onefile
+    # unpacks into /tmp and pins a glibc floor, so Alpine and read-only hosts were
+    # simply out of reach. The claim is now testable, so it gets tested.
+    runs-on: ubuntu-24.04
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - debian:11
+          - ubuntu:22.04
+          - ubuntu:24.04
+          - alpine:3.20
+    container:
+      image: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+        run: go build -trimpath -o /tmp/fleetfix ./cmd/fleetfix
+
+      - name: Run as root
+        run: |
+          set -eu
+          /tmp/fleetfix --version
+          # check exits 3 in this build (nothing is registered yet), so the exit
+          # code is asserted rather than relied on to be zero.
+          set +e
+          out="$(/tmp/fleetfix check --json)"
+          code=$?
+          set -e
+          test "$code" = "3" || { echo "::error::check exited $code, want 3"; exit 1; }
+          echo "$out" | grep -q '"schema"'
+
+      - name: Run as an unprivileged user
+        run: |
+          set -eu
+          # Both distro families, without assuming which useradd is present.
+          if command -v useradd >/dev/null 2>&1; then
+            useradd -m probe || true
+          else
+            adduser -D probe || true
+          fi
+          chmod 0755 /tmp/fleetfix
+          su probe -c '/tmp/fleetfix --version'
+          su probe -c '/tmp/fleetfix check --json > /dev/null; test $? = 3'
