@@ -345,6 +345,40 @@ var dispatch = map[string]adapter{
 		}
 		return nil, nil
 	}),
+	// The fixture is a captured API response and each side decodes it itself, which
+	// is part of what is being compared: v1 renders html_url and body through str(),
+	// and the two languages spell a JSON integer differently by default.
+	"updater.parse_release": text(func(t string, args map[string]any) (any, error) {
+		asset, err := strArg(args, "asset_name")
+		if err != nil {
+			return nil, err
+		}
+		payload, err := updater.DecodePayload([]byte(t))
+		if err != nil {
+			return nil, releaseErr(err)
+		}
+		// Python returns None for every refusal -- no tag, no asset, no checksum --
+		// and the zero Release would read as a release with an empty tag.
+		if v, ok := updater.ParseRelease(payload, asset); ok {
+			return v, nil
+		}
+		return nil, nil
+	}),
+}
+
+// releaseErr names the CPython exception v1 raises for a payload that never reaches
+// parse_release.
+//
+// json.loads is what fails on a body that will not decode, and duck typing is what
+// fails on one that decodes to a list: payload.get is an AttributeError there, not a
+// returned None. v1 catches both in check_for_update and reports no update, so the
+// distinction only exists in the record -- which is precisely where a Go port that
+// quietly answered "no release" instead would look equivalent.
+func releaseErr(err error) error {
+	if errors.Is(err, updater.ErrNotAnObject) {
+		return pyError{Code: "AttributeError"}
+	}
+	return pyError{Code: "JSONDecodeError"}
 }
 
 // systemErr names the CPython exception v1 raises for a failure the system

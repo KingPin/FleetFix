@@ -71,7 +71,7 @@ from fleetfix.modules.services import boot as services_boot  # noqa: E402
 from fleetfix.modules.services import failed as services_failed  # noqa: E402
 from fleetfix.modules.storage import env_check  # noqa: E402
 from fleetfix.modules.system import metrics, thermal, updates  # noqa: E402
-from fleetfix.updater import installer  # noqa: E402
+from fleetfix.updater import checker, installer  # noqa: E402
 
 MANIFEST = REPO_ROOT / "testdata" / "cases.jsonl"
 TESTDATA = REPO_ROOT / "testdata"
@@ -166,6 +166,13 @@ DISPATCH: dict[str, Adapter] = {
     "audit.read_recent": lambda p, a: audit_logger.read_recent(p, limit=a["limit"]),
     "updater.parse_sha256_line": lambda t, a: installer.parse_sha256_line(
         t, asset_name=a["asset_name"]
+    ),
+    # json.loads here rather than a "json" input kind: the fixture is a captured API
+    # response, and each side decoding it the way its own language does is part of
+    # what the comparison is for -- an integer html_url renders through str() and the
+    # two languages spell integers differently by default.
+    "updater.parse_release": lambda t, a: checker.parse_release(
+        json.loads(t), asset_name=a["asset_name"]
     ),
 }
 

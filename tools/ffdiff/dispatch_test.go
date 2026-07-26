@@ -642,3 +642,88 @@ func TestSystemAdaptersReportAnUnreadableFileAsPythonDoes(t *testing.T) {
 		})
 	}
 }
+
+// The release adapter carries the only two-stage decode in the table: the payload is
+// decoded to Python's value vocabulary first, and only then parsed. Both stages can
+// refuse, and the three refusals are recorded three different ways -- an error code,
+// a null, and a release -- so a test that only exercised the happy path would let two
+// of them collapse into each other unnoticed.
+func TestReleaseAdapterRecordsEachRefusalSeparately(t *testing.T) {
+	const asset = "fleetfix-linux-x86_64"
+	full := `{"tag_name":"v2.0.0","assets":[` +
+		`{"name":"` + asset + `","browser_download_url":"u"},` +
+		`{"name":"` + asset + `.sha256","browser_download_url":"c"}]}`
+
+	tests := []struct {
+		name string
+		body string
+		want string
+		code string
+	}{
+		{
+			name: "a release with both assets",
+			body: full,
+			want: `{"tag":"v2.0.0","version":"2.0.0","asset_url":"u",` +
+				`"checksum_url":"c","html_url":"","body":""}`,
+		},
+		{
+			// Python's None, not a zero Release: an empty tag would read as a
+			// release the updater could try to install.
+			name: "a release missing its checksum",
+			body: `{"tag_name":"v2.0.0","assets":[{"name":"` + asset + `","browser_download_url":"u"}]}`,
+			want: "null",
+		},
+		{
+			// A list decodes fine and then dies on .get, which is a raise rather
+			// than a returned None.
+			name: "a payload that is not an object",
+			body: `[]`,
+			code: "AttributeError",
+		},
+		{
+			name: "a body that is not JSON",
+			body: `{`,
+			code: "JSONDecodeError",
+		},
+		{
+			// Two values in one body. json.loads reads the whole string and calls
+			// this "Extra data"; a Decoder left to itself would take the first.
+			name: "a body holding a second value",
+			body: full + full,
+			code: "JSONDecodeError",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v, err := dispatch["updater.parse_release"].run(tt.body, map[string]any{"asset_name": asset})
+			if tt.code != "" {
+				var pe pyError
+				if !errors.As(err, &pe) {
+					t.Fatalf("run = %v, %v, want a pyError", v, err)
+				}
+				if pe.Code != tt.code {
+					t.Errorf("code = %q, want %q", pe.Code, tt.code)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("run: %v", err)
+			}
+			got, err := json.Marshal(v)
+			if err != nil {
+				t.Fatalf("Marshal: %v", err)
+			}
+			if string(got) != tt.want {
+				t.Errorf("run = %s, want %s", got, tt.want)
+			}
+		})
+	}
+}
+
+// The asset name selects a build, so it is not defaultable: a case that forgot it
+// would otherwise be compared against whichever architecture the adapter guessed.
+func TestReleaseAdapterNeedsAnAssetName(t *testing.T) {
+	if v, err := dispatch["updater.parse_release"].run(`{}`, nil); err == nil {
+		t.Errorf("run without asset_name = %v, nil, want an error", v)
+	}
+}
