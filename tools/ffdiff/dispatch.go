@@ -1,7 +1,10 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/KingPin/FleetFix/v2/internal/core/disk"
+	"github.com/KingPin/FleetFix/v2/internal/core/network"
 )
 
 // adapter is one entry in the manifest's language-neutral function namespace.
@@ -51,4 +54,36 @@ var dispatch = map[string]adapter{
 	"disk.parse_nvme_attributes": text(func(t string, _ map[string]any) (any, error) {
 		return disk.ParseNVMeAttributes(t), nil
 	}),
+
+	// network
+	"net.parse_ping_output": text(func(t string, args map[string]any) (any, error) {
+		target, err := strArg(args, "target")
+		if err != nil {
+			return nil, err
+		}
+		// Python returns None when the summary is absent; the zero PingSummary
+		// would compare as a real reading of zero packets.
+		if v, ok := network.ParsePingOutput(target, t); ok {
+			return v, nil
+		}
+		return nil, nil
+	}),
+}
+
+// strArg reads a manifest argument the adapter requires.
+//
+// A missing or mistyped argument is this table and py_oracle's disagreeing about
+// a case's signature, not a parser result, so it surfaces as an error on the case
+// rather than being passed along as an empty string that reads like a target
+// nobody set.
+func strArg(args map[string]any, key string) (string, error) {
+	v, ok := args[key]
+	if !ok {
+		return "", fmt.Errorf("manifest case has no %q argument", key)
+	}
+	s, ok := v.(string)
+	if !ok {
+		return "", fmt.Errorf("manifest argument %q is %T, want a string", key, v)
+	}
+	return s, nil
 }

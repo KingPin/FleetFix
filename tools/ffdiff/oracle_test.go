@@ -50,7 +50,7 @@ func TestOracleRunsRealCases(t *testing.T) {
 		"--testdata", filepath.Join(fixture.Root(), "testdata"),
 		"--out", out,
 		"--case", "df.usage_mixed",
-		"--case", "ping.ubuntu_no_loss", // no Go adapter yet
+		"--case", "ping.ubuntu_no_loss",
 	}, &stdout, &stderr)
 	if err != nil {
 		t.Fatalf("runOracle: %v (stderr: %s)", err, stderr.String())
@@ -69,20 +69,70 @@ func TestOracleRunsRealCases(t *testing.T) {
 		t.Errorf("record order = %v, want %v", order, want)
 	}
 
-	ported, _ := recs["df.usage_mixed"].(map[string]any)
-	rows, ok := ported["value"].([]any)
-	if !ok || len(rows) == 0 {
-		t.Fatalf("df.usage_mixed produced no rows: %v", ported)
+	rows, _ := recs["df.usage_mixed"].(map[string]any)
+	if _, ok := rows["value"].([]any); !ok {
+		t.Errorf("df.usage_mixed produced no rows: %v", rows)
 	}
-	if _, isErr := ported["error"]; isErr {
-		t.Errorf("a ported function recorded an error: %v", ported)
+	// The second case takes a manifest argument, so it also proves the args are
+	// reaching the adapter rather than every case being called bare.
+	ping, _ := recs["ping.ubuntu_no_loss"].(map[string]any)
+	summary, _ := ping["value"].(map[string]any)
+	if summary["target"] != "8.8.8.8" {
+		t.Errorf(`ping.ubuntu_no_loss recorded %v, want its manifest target "8.8.8.8"`, ping)
+	}
+	for _, id := range order {
+		if rec, _ := recs[id].(map[string]any); rec["error"] != nil {
+			t.Errorf("a ported function recorded an error: %v", rec)
+		}
+	}
+}
+
+// A case naming a function no adapter implements is the port's normal
+// intermediate state, and the record has to say so in a form `compare` can group
+// by. Built on a synthetic manifest rather than a real unported case: which real
+// functions are unported changes with every parser that lands, and this is about
+// the record's shape, not about today's gap.
+func TestOracleRecordsUnknownFunction(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "df"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "irrelevant: no adapter will ever read it\n"
+	if err := os.WriteFile(filepath.Join(dir, "df", "u.txt"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A real fixture and its true hash: runCase verifies the corpus before it
+	// consults dispatch, so a placeholder hash would abort ahead of the path
+	// under test.
+	line, err := json.Marshal(Case{
+		ID: "never.case", Fn: "never.ported", Fixture: "df/u.txt",
+		SHA256: hex.EncodeToString(hashOf([]byte(body))), Input: "text",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := filepath.Join(dir, "cases.jsonl")
+	if err := os.WriteFile(manifest, append(line, '\n'), 0o600); err != nil {
+		t.Fatal(err)
 	}
 
-	unported, _ := recs["ping.ubuntu_no_loss"].(map[string]any)
-	if !isUnimplemented(unported) {
-		t.Errorf("a function with no adapter recorded %v, want UnknownFunction", unported)
+	out := filepath.Join(dir, "go.jsonl")
+	var stdout, stderr strings.Builder
+	if err := runOracle([]string{
+		"--manifest", manifest, "--testdata", dir, "--out", out,
+	}, &stdout, &stderr); err != nil {
+		t.Fatalf("runOracle: %v (stderr: %s)", err, stderr.String())
 	}
-	if got := unportedFn(unported); got != "net.parse_ping_output" {
+
+	recs, _, err := loadRecords(out)
+	if err != nil {
+		t.Fatalf("loadRecords: %v", err)
+	}
+	rec, _ := recs["never.case"].(map[string]any)
+	if !isUnimplemented(rec) {
+		t.Errorf("a function with no adapter recorded %v, want UnknownFunction", rec)
+	}
+	if got := unportedFn(rec); got != "never.ported" {
 		t.Errorf("UnknownFunction named %q; the record must carry the manifest name so compare can group by it", got)
 	}
 }
