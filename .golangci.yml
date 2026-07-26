@@ -46,9 +46,8 @@ linters:
             - pkg: github.com/gdamore/tcell/v2
               desc: terminal rendering belongs in internal/tui; check --json and the agent must not depend on it
 
-        # internal/fixture imports testing, which registers the -test.* flags into
-        # any binary that links it. Nothing shipping may reach for it.
-        fixtures-are-test-only:
+        # Packages that must never be linked into the shipping binary.
+        test-only-imports:
           list-mode: lax
           files:
             - "!$test"
@@ -57,6 +56,11 @@ linters:
               desc: >-
                 internal/fixture is test-only; importing it from shipping code puts
                 the testing package's flags into the fleetfix binary
+            - pkg: github.com/google/go-cmp/cmp
+              desc: >-
+                go-cmp is documented as test-only and panics on unexported fields
+                rather than returning an error; production comparisons must not
+                depend on it
 
         yaml-only-in-config:
           list-mode: lax
