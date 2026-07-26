@@ -104,6 +104,12 @@ jobs:
           floors="
           internal/core=85
           internal/pytext=95
+          # Same class as pytext, and for the same reason: it is Python's
+          # datetime.fromisoformat, whose accept/reject boundary was measured
+          # against the interpreter rather than read off the documentation. An
+          # untested branch is a container start time that silently reads as
+          # "never started".
+          internal/pytime=95
           internal/audit=90
           internal/updater=85
           # High, because this package is a dialect emulation: it reproduces
