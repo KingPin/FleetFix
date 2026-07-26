@@ -1,0 +1,94 @@
+# The Python suite, kept green for exactly as long as it is the oracle.
+#
+# Replaces lint-test.yml.disabled, which was a perfectly good workflow that never
+# ran because it shipped disabled by filename. This one exists for one reason: the
+# differential harness's trustworthiness *is* the Python suite's trustworthiness.
+# If the oracle rots, the harness silently proves nothing while still reporting
+# 100% equivalence.
+#
+# Scoped down from the original accordingly:
+#
+#   - One interpreter, 3.10, not three. Multi-version coverage protects a library's
+#     users; this code is being deleted at M7 and nothing installs it as a library.
+#   - tests/unit only. tests/e2e drives Textual pilots, which have no Go analogue
+#     and no bearing on whether the oracle is telling the truth.
+#   - No mypy gate. `strict = true` is configured and run by nothing, and main
+#     carries 28 errors across 14 files. Paying that down in a language we are
+#     abandoning would buy a clean report on code scheduled for deletion.
+#
+# Deleted at M7 along with src/ and tests/.
+name: python-legacy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/fleetfix/**"
+      - "tests/**"
+      - "testdata/**"
+      - "tools/**"
+      - "pyproject.toml"
+      - ".github/workflows/python-legacy.yml"
+  pull_request:
+    paths:
+      - "src/fleetfix/**"
+      - "tests/**"
+      - "testdata/**"
+      - "tools/**"
+      - "pyproject.toml"
+      - ".github/workflows/python-legacy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-legacy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Ruff lint
+        run: ruff check src tests tools
+
+      - name: Ruff format check
+        run: ruff format --check src tests tools
+
+      - name: Unit tests
+        run: pytest tests/unit
+
+      # The fixtures under testdata/ are the contract between the two
+      # implementations, and every one is read by the oracle. Both failure modes
+      # here are silent by nature: a case that stops loading just makes the
+      # comparison smaller, and a function dropped from the dispatch table produces
+      # an UnknownFunction record that compares equal to itself on both sides. So
+      # the count and the absence of UnknownFunction are asserted, not eyeballed.
+      - name: The oracle dispatches every case
+        run: |
+          set -eu
+          python tools/oracle/py_oracle.py --out /tmp/py.jsonl
+          cases="$(grep -c . testdata/cases.jsonl)"
+          records="$(grep -c . /tmp/py.jsonl)"
+          echo "cases=${cases} records=${records}"
+          test "$cases" = "$records" || {
+            echo "::error::the oracle emitted ${records} records for ${cases} cases"
+            exit 1
+          }
+          if grep -q UnknownFunction /tmp/py.jsonl; then
+            echo "::error::the dispatch table has lost a function:"
+            grep UnknownFunction /tmp/py.jsonl
+            exit 1
+          fi
