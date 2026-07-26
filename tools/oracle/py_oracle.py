@@ -69,6 +69,7 @@ from fleetfix.modules.network import (  # noqa: E402
     tcp,
 )
 from fleetfix.modules.network import traceroute as tr  # noqa: E402
+from fleetfix.modules.procs import ranker  # noqa: E402
 from fleetfix.modules.services import boot as services_boot  # noqa: E402
 from fleetfix.modules.services import failed as services_failed  # noqa: E402
 from fleetfix.modules.storage import env_check  # noqa: E402
@@ -156,6 +157,18 @@ DISPATCH: dict[str, Adapter] = {
     "docker.parse_ps_json_lines": lambda t, a: docker_dashboard.parse_ps_json_lines(t),
     "docker.parse_inspect_fields": lambda t, a: docker_dashboard.parse_inspect_fields(t),
     "docker.parse_system_df_json_lines": lambda t, a: docker_hygiene.parse_system_df_json_lines(t),
+    # procs
+    #
+    # A line per case, the way net.parse_host_port does it: one /proc/<pid>/stat is
+    # a single line, so a fixture holding one per shape reads as the behaviour
+    # table it is. Private in v1 -- nothing public reaches them without walking
+    # /proc -- and the harness compares behaviour, not visibility.
+    "procs.parse_stat_comm_and_ticks": lambda t, a: [
+        ranker._parse_stat_comm_and_ticks(line) for line in t.splitlines() if line
+    ],
+    "procs.parse_statm_rss_pages": lambda t, a: [
+        ranker._parse_statm_rss_pages(line) for line in t.splitlines() if line
+    ],
     # services
     "services.parse_failed_units": lambda t, a: services_failed.parse_failed_units(t),
     "services.parse_show_user": lambda t, a: services_failed.parse_show_user(t),

@@ -80,6 +80,8 @@
 {"id": "proc.meminfo.full", "fn": "system.read_meminfo", "fixture": "proc/meminfo/full.txt", "sha256": "9e867e853366c86a7bed26f5ebcd4e6c980040c56225bb8bb8a74b9b70068e05", "input": "path", "args": {}}
 {"id": "proc.meminfo.no_memavailable", "fn": "system.read_meminfo", "fixture": "proc/meminfo/no_memavailable.txt", "sha256": "f6ee7f25d0e8955b56b645c4c5196ac28e98b557167f5941d2af4e6863660c55", "input": "path", "args": {}}
 {"id": "proc.meminfo.no_swap", "fn": "system.read_meminfo", "fixture": "proc/meminfo/no_swap.txt", "sha256": "800de3a0e311088bcf9033bc1a3e15c6d0eca0d85cc3f56a7ccf7e2d45e92e41", "input": "path", "args": {}}
+{"id": "proc.pid.stat", "fn": "procs.parse_stat_comm_and_ticks", "fixture": "proc/pid/stat.txt", "sha256": "132cd4c9be18176d695bc53ff30c11f2e75c8b66b3639d2a23f7cec12322bef2", "input": "text", "args": {}}
+{"id": "proc.pid.statm", "fn": "procs.parse_statm_rss_pages", "fixture": "proc/pid/statm.txt", "sha256": "d6d9655bd0fb7937102995de057383d29a6bab1b1a93916e456978b9ea2a0c5e", "input": "text", "args": {}}
 {"id": "proc.net.dev", "fn": "net.read_counters", "fixture": "proc/net/dev.txt", "sha256": "48850d7f549211aa245822c3ce931e3c08b7dfc652516b180eda676cd2075bdc", "input": "path", "args": {}}
 {"id": "proc.net.route_no_default", "fn": "net.default_route", "fixture": "proc/net/route_no_default.txt", "sha256": "812d3f0baa9ef392e4bbfef42a22d521a2d57439987ed7bc1f314d186a20e830", "input": "path", "args": {}}
 {"id": "proc.net.route_with_default", "fn": "net.default_route", "fixture": "proc/net/route_with_default.txt", "sha256": "083aab9559e74dc862334c0ea6f9eb7c6f8e5cfe1ed0262225f1d1221260fd51", "input": "path", "args": {}}

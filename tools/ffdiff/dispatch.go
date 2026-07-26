@@ -14,6 +14,7 @@ import (
 	"github.com/KingPin/FleetFix/v2/internal/core/docker"
 	"github.com/KingPin/FleetFix/v2/internal/core/logsqueeze"
 	"github.com/KingPin/FleetFix/v2/internal/core/network"
+	"github.com/KingPin/FleetFix/v2/internal/core/procs"
 	"github.com/KingPin/FleetFix/v2/internal/core/services"
 	"github.com/KingPin/FleetFix/v2/internal/core/storage"
 	"github.com/KingPin/FleetFix/v2/internal/core/system"
@@ -250,6 +251,40 @@ var dispatch = map[string]adapter{
 		return v, nil
 	}),
 
+	// procs
+	//
+	// A line per case, as net.parse_host_port does it. Python returns a tuple or
+	// None per line, so the pair goes out as a two-element list and a line with no
+	// answer as a null -- the shapes asdict-of-a-tuple and asdict-of-nothing produce
+	// on the other side.
+	"procs.parse_stat_comm_and_ticks": text(func(t string, _ map[string]any) (any, error) {
+		out := []any{}
+		for _, line := range pytext.SplitLines(t) {
+			if line == "" {
+				continue
+			}
+			if comm, ticks, ok := procs.ParseStatCommAndTicks(line); ok {
+				out = append(out, []any{comm, ticks})
+			} else {
+				out = append(out, nil)
+			}
+		}
+		return out, nil
+	}),
+	"procs.parse_statm_rss_pages": text(func(t string, _ map[string]any) (any, error) {
+		out := []any{}
+		for _, line := range pytext.SplitLines(t) {
+			if line == "" {
+				continue
+			}
+			if pages, ok := procs.ParseStatmRSSPages(line); ok {
+				out = append(out, pages)
+			} else {
+				out = append(out, nil)
+			}
+		}
+		return out, nil
+	}),
 	// services
 	"services.parse_failed_units": text(func(t string, _ map[string]any) (any, error) {
 		return services.ParseFailedUnits(t), nil
