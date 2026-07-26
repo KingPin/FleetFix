@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/KingPin/FleetFix/v2/internal/core/disk"
+	"github.com/KingPin/FleetFix/v2/internal/core/docker"
 	"github.com/KingPin/FleetFix/v2/internal/core/logsqueeze"
 	"github.com/KingPin/FleetFix/v2/internal/core/network"
 	"github.com/KingPin/FleetFix/v2/internal/core/services"
@@ -75,6 +76,17 @@ var dispatch = map[string]adapter{
 	}),
 	"disk.parse_lsof_field_output": text(func(t string, _ map[string]any) (any, error) {
 		return disk.ParseLsofFieldOutput(t), nil
+	}),
+
+	// docker
+	"docker.parse_ps_json_lines": text(func(t string, _ map[string]any) (any, error) {
+		return docker.ParsePSJSONLines(t), nil
+	}),
+	"docker.parse_system_df_json_lines": text(func(t string, _ map[string]any) (any, error) {
+		return docker.ParseSystemDFJSONLines(t), nil
+	}),
+	"docker.parse_reclaimed_total": text(func(t string, _ map[string]any) (any, error) {
+		return docker.ParseReclaimedTotal(t), nil
 	}),
 
 	// logsqueeze

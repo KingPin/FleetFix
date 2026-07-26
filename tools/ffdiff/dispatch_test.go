@@ -99,6 +99,20 @@ func TestRecordAdaptersKeepPythonsFieldNames(t *testing.T) {
 		want string
 	}{
 		{
+			"docker.parse_system_df_json_lines",
+			`{"Type":"Images","TotalCount":"114","Active":"6","Size":"53.5GB","Reclaimable":"45.68GB (85%)"}` + "\n",
+			`[{"type":"Images","total_count":114,"active":6,"size_bytes":53500000000,` +
+				`"reclaimable_bytes":45680000000,"reclaimable_pct":85}]`,
+		},
+		{
+			// A list of raw JSON values, not of records: v1 hands back whatever the
+			// line decoded to, and the big integer has to survive as itself rather
+			// than as the nearest float64.
+			"docker.parse_ps_json_lines",
+			`{"ID":"abc","n":12345678901234567890}` + "\n",
+			`[{"ID":"abc","n":12345678901234567890}]`,
+		},
+		{
 			"services.parse_failed_units",
 			"kafka.service loaded failed failed Apache Kafka\n",
 			`[{"name":"kafka.service","load":"loaded","active":"failed","sub":"failed","description":"Apache Kafka"}]`,
