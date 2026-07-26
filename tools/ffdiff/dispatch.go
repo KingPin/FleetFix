@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/KingPin/FleetFix/v2/internal/audit"
 	"github.com/KingPin/FleetFix/v2/internal/config"
 	"github.com/KingPin/FleetFix/v2/internal/core/disk"
 	"github.com/KingPin/FleetFix/v2/internal/core/docker"
@@ -64,6 +65,30 @@ func wholePath(fn func(string, map[string]any) (any, error)) adapter {
 // gap between this table and py_oracle's is the port's remaining parser work,
 // visible on every run instead of tracked in someone's head.
 var dispatch = map[string]adapter{
+	// audit
+	//
+	// The env map comes from the manifest rather than the process environment, so a
+	// case can pin an override without the two oracles having to agree about how to
+	// set one -- and so the shipped resolver never learns to read os.Environ itself.
+	"audit.load_otel_config": wholePath(func(p string, args map[string]any) (any, error) {
+		env, err := strMapArg(args, "env")
+		if err != nil {
+			return nil, err
+		}
+		// A nil return is Python's None: no endpoint, local-only auditing. Marshalled
+		// as null, which is what asdict-of-nothing gives on the other side.
+		if c := audit.LoadOtelConfig(p, env); c != nil {
+			return c, nil
+		}
+		return nil, nil
+	}),
+	"audit.read_recent": wholePath(func(p string, args map[string]any) (any, error) {
+		limit, err := intArg(args, "limit")
+		if err != nil {
+			return nil, err
+		}
+		return audit.ReadRecent(p, limit), nil
+	}),
 	// disk
 	"disk.parse_df": text(func(t string, _ map[string]any) (any, error) {
 		return disk.ParseDF(t), nil
@@ -338,6 +363,36 @@ func optStrListArg(args map[string]any, key string) ([]string, error) {
 			return nil, fmt.Errorf("manifest argument %q[%d] is %T, want a string", key, i, item)
 		}
 		out = append(out, s)
+	}
+	return out, nil
+}
+
+// strMapArg reads a string-to-string manifest argument, which today is an
+// environment the adapter passes rather than reads.
+//
+// Required, not optional: py_oracle indexes args["env"] directly, so an absent one
+// is a KeyError there and must be an error here too rather than an empty map that
+// silently answers a question nobody asked. A null is an empty map, since that is
+// the one spelling of "no overrides" JSON and Python both have.
+func strMapArg(args map[string]any, key string) (map[string]string, error) {
+	v, ok := args[key]
+	if !ok {
+		return nil, fmt.Errorf("manifest case has no %q argument", key)
+	}
+	if v == nil {
+		return map[string]string{}, nil
+	}
+	raw, ok := v.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("manifest argument %q is %T, want an object", key, v)
+	}
+	out := make(map[string]string, len(raw))
+	for k, item := range raw {
+		s, ok := item.(string)
+		if !ok {
+			return nil, fmt.Errorf("manifest argument %q[%q] is %T, want a string", key, k, item)
+		}
+		out[k] = s
 	}
 	return out, nil
 }

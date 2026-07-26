@@ -311,6 +311,130 @@ func writeYAML(t *testing.T, dir, name, body string) string {
 	return path
 }
 
+// No endpoint is Python's None, and the adapter must spell it null rather than a
+// zero-valued object that reads like a sink configured to point nowhere.
+func TestOtelAdapterSpellsNoEndpointAsNull(t *testing.T) {
+	path := writeYAML(t, t.TempDir(), "otel.yml", "service_name: svc\n")
+	v, err := dispatch["audit.load_otel_config"].run(path, map[string]any{"env": map[string]any{}})
+	if err != nil {
+		t.Fatalf("adapter returned %v", err)
+	}
+	got, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "null" {
+		t.Errorf("adapter marshalled to %s, want null", got)
+	}
+}
+
+// asdict on v1's frozen dataclass gives these four keys; the struct's field order
+// and its never-nil headers map are what make the marshalled forms comparable.
+func TestOtelAdapterWireShape(t *testing.T) {
+	path := writeYAML(t, t.TempDir(), "otel.yml", "endpoint: e\nheaders:\n  a: 1\n")
+	v, err := dispatch["audit.load_otel_config"].run(path, map[string]any{
+		"env": map[string]any{"FLEETFIX_OTLP_INSECURE": "1"},
+	})
+	if err != nil {
+		t.Fatalf("adapter returned %v", err)
+	}
+	got, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"endpoint":"e","headers":{"a":"1"},"insecure":true,"service_name":"fleetfix"}`
+	if string(got) != want {
+		t.Errorf("adapter marshalled to\n\t%s\nwant\n\t%s", got, want)
+	}
+}
+
+// An empty trail must be [] and not null: py_oracle returns the list read_recent
+// returns, and a nil slice would diverge on the absent-vs-null rule.
+func TestRecentAdapterSpellsAnEmptyTrailAsAList(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "not-here.jsonl")
+	v, err := dispatch["audit.read_recent"].run(missing, map[string]any{"limit": 200.0})
+	if err != nil {
+		t.Fatalf("adapter returned %v", err)
+	}
+	got, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "[]" {
+		t.Errorf("adapter marshalled to %s, want []", got)
+	}
+}
+
+// Numbers keep the spelling json.loads gave them, which is the whole reason the
+// records decode through UseNumber rather than into float64.
+func TestRecentAdapterKeepsNumberSpellings(t *testing.T) {
+	path := writeYAML(t, t.TempDir(), "audit.jsonl", "{\"seq\":1,\"d\":1.0}\n")
+	v, err := dispatch["audit.read_recent"].run(path, map[string]any{"limit": 200.0})
+	if err != nil {
+		t.Fatalf("adapter returned %v", err)
+	}
+	got, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `[{"d":1.0,"seq":1}]`; string(got) != want {
+		t.Errorf("adapter marshalled to %s, want %s", got, want)
+	}
+}
+
+// Both audit adapters require their argument, because py_oracle indexes args
+// directly and a KeyError there has to be an error here rather than a default that
+// answers a different question.
+func TestAuditAdaptersRequireTheirArguments(t *testing.T) {
+	path := writeYAML(t, t.TempDir(), "f", "{}\n")
+	for _, fn := range []string{"audit.load_otel_config", "audit.read_recent"} {
+		t.Run(fn, func(t *testing.T) {
+			v, err := dispatch[fn].run(path, map[string]any{})
+			if err == nil {
+				t.Fatalf("adapter returned %#v, want an error", v)
+			}
+			if v != nil {
+				t.Errorf("adapter returned %#v alongside its error, want nil", v)
+			}
+		})
+	}
+}
+
+func TestStrMapArg(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]any
+		want map[string]string
+		err  bool
+	}{
+		{"empty", map[string]any{"env": map[string]any{}}, map[string]string{}, false},
+		{
+			"pairs",
+			map[string]any{"env": map[string]any{"A": "1", "B": "2"}},
+			map[string]string{"A": "1", "B": "2"},
+			false,
+		},
+		// null is "no overrides", the one spelling both languages have for it.
+		{"null", map[string]any{"env": nil}, map[string]string{}, false},
+		{"absent", map[string]any{}, nil, true},
+		{"not an object", map[string]any{"env": "A=1"}, nil, true},
+		// A number here is the manifest and py_oracle disagreeing, not an env var
+		// worth coercing: os.environ holds strings only.
+		{"non-string value", map[string]any{"env": map[string]any{"A": 1.0}}, nil, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := strMapArg(tt.args, "env")
+			if (err != nil) != tt.err {
+				t.Fatalf("strMapArg(%v) error = %v, want an error: %v", tt.args, err, tt.err)
+			}
+			if fmt.Sprint(got) != fmt.Sprint(tt.want) {
+				t.Errorf("strMapArg(%v) = %#v, want %#v", tt.args, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestSystemAdaptersReportAnUnreadableFileAsPythonDoes(t *testing.T) {
 	// The oracle hands each adapter a real path, so a missing one is the only
 	// failure reachable through the adapter rather than through the reader.
