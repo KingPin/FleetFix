@@ -240,6 +240,77 @@ func TestOptStrListArg(t *testing.T) {
 	}
 }
 
+var configFns = []string{"config.read_probes_yaml", "config.read_paths_yaml", "config.read_perf_yaml"}
+
+// v1's loaders warn and return what they have, so a file the parser choked on is a
+// value, not an error. An adapter that surfaced the error would diverge on every
+// malformed fixture against a Python side that answers {}.
+func TestConfigAdaptersReturnAValueNotAnError(t *testing.T) {
+	dir := t.TempDir()
+	malformed := filepath.Join(dir, "malformed.yml")
+	if err := os.WriteFile(malformed, []byte("a: [unclosed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	paths := map[string]string{
+		"malformed":   malformed,
+		"missing":     filepath.Join(dir, "not-here.yml"),
+		"unreadable":  dir, // a directory: EISDIR
+		"non-mapping": writeYAML(t, dir, "list.yml", "- a\n- b\n"),
+	}
+	for _, fn := range configFns {
+		for _, name := range []string{"malformed", "missing", "unreadable", "non-mapping"} {
+			t.Run(fn+"/"+name, func(t *testing.T) {
+				v, err := dispatch[fn].run(paths[name], nil)
+				if err != nil {
+					t.Fatalf("adapter returned %v, want the value", err)
+				}
+				got, err := json.Marshal(v)
+				if err != nil {
+					t.Fatalf("marshalling the adapter's value: %v", err)
+				}
+				// Not "null": v1 returns a dict the caller indexes unconditionally,
+				// and a nil map would marshal as null and diverge on the
+				// absent-vs-null rule rather than compare equal to {}.
+				if string(got) != "{}" {
+					t.Errorf("adapter marshalled to %s, want {}", got)
+				}
+			})
+		}
+	}
+}
+
+// The wire shape of a mapping that parses: ints as JSON numbers, not strings, which
+// is where an int64 or a *big.Int leaking through as text would show up.
+func TestConfigAdapterWireShape(t *testing.T) {
+	path := writeYAML(t, t.TempDir(), "probes.yml",
+		"ping:\n  count: 5\n  interval_s: 0.3\n  targets: [10.0.0.1, 8.8.8.8]\nhuge: 12345678901234567890\n")
+	v, err := dispatch["config.read_probes_yaml"].run(path, nil)
+	if err != nil {
+		t.Fatalf("adapter returned %v", err)
+	}
+	got, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshalling the adapter's value: %v", err)
+	}
+	// Go alphabetises map keys and Python preserves insertion order, which is not a
+	// divergence: compare compares decoded values. The literal is written in Go's
+	// order because that is what this assertion is reading.
+	want := `{"huge":12345678901234567890,"ping":{"count":5,"interval_s":0.3,` +
+		`"targets":["10.0.0.1","8.8.8.8"]}}`
+	if string(got) != want {
+		t.Errorf("adapter marshalled to\n\t%s\nwant\n\t%s", got, want)
+	}
+}
+
+func writeYAML(t *testing.T, dir, name, body string) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func TestSystemAdaptersReportAnUnreadableFileAsPythonDoes(t *testing.T) {
 	// The oracle hands each adapter a real path, so a missing one is the only
 	// failure reachable through the adapter rather than through the reader.

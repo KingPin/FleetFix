@@ -106,6 +106,11 @@ jobs:
           internal/pytext=95
           internal/audit=90
           internal/updater=85
+          # High, because this package is a dialect emulation: it reproduces
+          # PyYAML's constructors so an operator's existing probes.yml keeps
+          # meaning what it meant, and an untested branch there is a threshold
+          # override that silently reads as something else.
+          internal/config=90
           internal/cli=90
           internal/cmdrun=95
           internal/hostfs=95

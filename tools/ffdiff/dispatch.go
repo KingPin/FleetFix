@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/KingPin/FleetFix/v2/internal/config"
 	"github.com/KingPin/FleetFix/v2/internal/core/disk"
 	"github.com/KingPin/FleetFix/v2/internal/core/docker"
 	"github.com/KingPin/FleetFix/v2/internal/core/logsqueeze"
@@ -173,6 +174,29 @@ var dispatch = map[string]adapter{
 	}),
 	"services.parse_blame": text(func(t string, _ map[string]any) (any, error) {
 		return services.ParseBlame(t), nil
+	}),
+
+	// config
+	//
+	// The parse error is deliberately dropped. v1's loaders never raise -- they warn
+	// and hand back what they have -- so the value the caller receives is the whole
+	// of the observable behaviour, and that is what the oracle must report. Returning
+	// the error here would make every malformed-fixture case diverge against a
+	// Python side that answers {}.
+	//
+	// wholePath, not pathFS: the loaders take a path, and reading a config file is
+	// not something they should have to do through an fs.FS.
+	"config.read_probes_yaml": wholePath(func(p string, _ map[string]any) (any, error) {
+		v, _ := config.ReadProbesYAML(p)
+		return v, nil
+	}),
+	"config.read_paths_yaml": wholePath(func(p string, _ map[string]any) (any, error) {
+		v, _ := config.ReadPathsYAML(p)
+		return v, nil
+	}),
+	"config.read_perf_yaml": wholePath(func(p string, _ map[string]any) (any, error) {
+		v, _ := config.ReadPerfYAML(p)
+		return v, nil
 	}),
 
 	// storage
