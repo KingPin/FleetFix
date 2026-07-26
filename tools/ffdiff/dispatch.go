@@ -35,4 +35,20 @@ var dispatch = map[string]adapter{
 	"disk.parse_df_inodes": text(func(t string, _ map[string]any) (any, error) {
 		return disk.ParseDFInodes(t), nil
 	}),
+	"disk.parse_health": text(func(t string, _ map[string]any) (any, error) {
+		// Python returns None when the line is absent. Returning "" instead
+		// would land on the null-vs-empty cosmetic rule and be normalised away,
+		// so the one case where the two really could disagree would stop being
+		// visible. Return the null.
+		if v, ok := disk.ParseHealth(t); ok {
+			return v, nil
+		}
+		return nil, nil
+	}),
+	"disk.parse_sata_attributes": text(func(t string, _ map[string]any) (any, error) {
+		return disk.ParseSATAAttributes(t), nil
+	}),
+	"disk.parse_nvme_attributes": text(func(t string, _ map[string]any) (any, error) {
+		return disk.ParseNVMeAttributes(t), nil
+	}),
 }
