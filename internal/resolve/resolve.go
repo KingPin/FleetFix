@@ -27,6 +27,7 @@ import (
 	"github.com/KingPin/FleetFix/v2/internal/cmdrun"
 	"github.com/KingPin/FleetFix/v2/internal/config"
 	"github.com/KingPin/FleetFix/v2/internal/container"
+	corenet "github.com/KingPin/FleetFix/v2/internal/core/network"
 	"github.com/KingPin/FleetFix/v2/internal/hostinfo"
 	"github.com/KingPin/FleetFix/v2/internal/identity"
 	"github.com/KingPin/FleetFix/v2/internal/privilege"
@@ -94,6 +95,12 @@ type Resolved struct {
 	// trips[] in the report, the agent's trip events, doctor's listing.
 	Thresholds threshold.Set
 
+	// Probes is probes.yml merged over the defaults: which targets the network
+	// checks probe and how long each is given. Resolved here for the same reason
+	// as Thresholds -- a check grading against a file doctor does not describe is
+	// how a support call ends with "but doctor says we ping 1.1.1.1".
+	Probes corenet.Probes
+
 	// Configs is every file in Files, merged across layers, keyed by file name.
 	// Use Config rather than indexing, so a caller cannot silently read a nil map.
 	Configs map[string]config.Loaded
@@ -153,15 +160,18 @@ func New(opts Options) *Resolved {
 		runtime:   container.Detect(opts.Looker, opts.Getenv),
 	}
 
-	// Thresholds and identity are read through their own accessors rather than
-	// Load, because those are where the file's meaning lives -- the bounds
-	// parser and the principals table -- and their warnings belong with the
-	// file's own.
+	// Thresholds, identity and probes are read through their own resolvers
+	// rather than Load, because those are where each file's meaning lives -- the
+	// bounds parser, the principals table, the probe knobs and their clamps --
+	// and the warnings each produces belong with the file's own.
 	thresholds, thresholdsLoaded := opts.Paths.Thresholds()
 	principals, identityLoaded := opts.Paths.Principals()
+	probes, probesLoaded := resolveProbes(*opts.Paths)
 	r.Thresholds = thresholds
+	r.Probes = probes
 	r.Configs[config.ThresholdsFile] = thresholdsLoaded
 	r.Configs[config.IdentityFile] = identityLoaded
+	r.Configs[config.ProbesFile] = probesLoaded
 
 	for _, name := range Files {
 		if _, done := r.Configs[name]; done {

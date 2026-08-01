@@ -14,19 +14,37 @@ package builtin
 import (
 	"github.com/KingPin/FleetFix/v2/internal/check"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/disk"
+	"github.com/KingPin/FleetFix/v2/internal/check/builtin/network"
 	"github.com/KingPin/FleetFix/v2/internal/cmdrun"
+	corenet "github.com/KingPin/FleetFix/v2/internal/core/network"
+	"github.com/KingPin/FleetFix/v2/internal/netprobe"
 )
 
 // Deps is everything the collectors need from the host, in the shape that lets a
 // test stage all of it.
 //
-// A struct rather than a bare Runner even with one field in it: the collectors
-// still to land need a filesystem, a dialer and a resolver, and every one of
-// those arriving as a new positional argument would touch every call site again.
+// Every field is optional and every default is the live host, so a caller that
+// only wants to know what this build can check -- `--list`, doctor's inventory,
+// the registry test below -- supplies nothing and still gets the real set.
 type Deps struct {
-	// Run is the subprocess seam. Nil means the real one, so a caller that only
-	// wants to know what this build can check does not have to supply one.
+	// Run is the subprocess seam. Nil means the real one.
 	Run cmdrun.Runner
+
+	// Look answers "is this binary installed", which the network domain needs
+	// before it can choose between traceroute and tracepath.
+	Look cmdrun.Looker
+
+	// Prober is the network domain's I/O seam: /proc, the resolver, the dialer
+	// and the clock, alongside the two above. Nil means one built from Run and
+	// Look over the live host, so the common case is to set those two and leave
+	// this alone; a test that stages a whole fake machine sets this instead.
+	Prober *netprobe.Prober
+
+	// Probes is probes.yml, already resolved by internal/resolve. A pointer
+	// because the zero Probes is a valid-looking value with no targets in it,
+	// which would silently skip every network probe -- nil has to mean "nobody
+	// said", and that means the defaults.
+	Probes *corenet.Probes
 }
 
 func (d Deps) runner() cmdrun.Runner {
@@ -34,6 +52,30 @@ func (d Deps) runner() cmdrun.Runner {
 		return cmdrun.New()
 	}
 	return d.Run
+}
+
+// prober is the network seam, defaulted to the live host but wearing whichever
+// of Run and Look the caller supplied, so one invocation's subprocesses all go
+// through the seam it was resolved with.
+func (d Deps) prober() *netprobe.Prober {
+	if d.Prober != nil {
+		return d.Prober
+	}
+	p := netprobe.New()
+	if d.Run != nil {
+		p.Run = d.Run
+	}
+	if d.Look != nil {
+		p.Look = d.Look
+	}
+	return p
+}
+
+func (d Deps) probes() corenet.Probes {
+	if d.Probes == nil {
+		return corenet.DefaultProbes()
+	}
+	return *d.Probes
 }
 
 // Checks returns every check this build ships, grouped by domain.
@@ -47,6 +89,7 @@ func Checks(deps Deps) []check.Check {
 
 	var out []check.Check
 	out = append(out, disk.Checks(run)...)
+	out = append(out, network.Checks(deps.prober(), deps.probes())...)
 	return out
 }
 

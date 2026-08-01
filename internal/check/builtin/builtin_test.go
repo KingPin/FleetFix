@@ -6,7 +6,10 @@ import (
 
 	"github.com/KingPin/FleetFix/v2/internal/check"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/disk"
+	"github.com/KingPin/FleetFix/v2/internal/check/builtin/network"
 	"github.com/KingPin/FleetFix/v2/internal/cmdrun"
+	corenet "github.com/KingPin/FleetFix/v2/internal/core/network"
+	"github.com/KingPin/FleetFix/v2/internal/netprobe"
 	"github.com/KingPin/FleetFix/v2/internal/threshold"
 )
 
@@ -49,6 +52,88 @@ func TestTheDiskDomainIsRegistered(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("%s is not registered in this build", id)
+		}
+	}
+}
+
+func TestTheNetworkDomainIsRegistered(t *testing.T) {
+	reg := Registry(Deps{})
+
+	registered := map[check.ID]bool{}
+	for _, spec := range reg.Specs() {
+		registered[spec.ID] = true
+	}
+	for _, id := range []check.ID{
+		network.LadderID, network.InterfaceID, network.ResolverID,
+		network.PingID, network.DNSID, network.HTTPSID, network.TCPID,
+		network.SocketsID, network.TracerouteID,
+	} {
+		if !registered[id] {
+			t.Errorf("%s is not registered in this build", id)
+		}
+	}
+}
+
+// The network domain's seam, same property as the disk domain's runner: a
+// collector that built its own netprobe.New() would pass every other test here
+// and still ping the internet from a unit test.
+func TestTheStagedProberReachesTheNetworkChecks(t *testing.T) {
+	fake := cmdrun.NewFake()
+	fake.Stdout("", "ss", "-tlnpH")
+	reg := Registry(Deps{Prober: &netprobe.Prober{Run: fake, Look: cmdrun.NewFakeLooker("ss")}})
+
+	selected, err := reg.Select([]string{string(network.SocketsID)}, nil)
+	if err != nil {
+		t.Fatalf("selecting %s failed: %v", network.SocketsID, err)
+	}
+	selected[0].Run(t.Context(), check.Input{Params: map[string]string{}, Progress: check.Discard})
+
+	if !fake.Called("ss", "-tlnpH") {
+		t.Errorf("calls = %v, want the sockets collector's ss among them", fake.Calls())
+	}
+}
+
+// Run and Look flow into the default prober, so setting those two is enough for
+// a caller that does not want to assemble a whole fake host -- and so one
+// invocation's subprocesses all go through the seam it was resolved with.
+func TestTheSharedSeamsReachTheDefaultProber(t *testing.T) {
+	fake := cmdrun.NewFake()
+	look := cmdrun.NewFakeLooker("traceroute")
+
+	p := Deps{Run: fake, Look: look}.prober()
+	if p.Run != cmdrun.Runner(fake) {
+		t.Error("the default prober did not take the supplied runner")
+	}
+	if p.Look != cmdrun.Looker(look) {
+		t.Error("the default prober did not take the supplied looker")
+	}
+	// The rest is still the live host, which is what makes Run and Look on their
+	// own a usable configuration rather than half of one.
+	if p.Dial == nil || p.Lookup == nil || p.ReadFile == nil {
+		t.Error("the default prober is missing a seam nobody overrode")
+	}
+}
+
+// Nil probes means the defaults, and the defaults have targets. The zero Probes
+// looks valid and has none, which would skip every network probe on a host whose
+// caller simply did not set the field.
+func TestNilProbesMeansTheShippedTargets(t *testing.T) {
+	if got := (Deps{}).probes(); len(got.Ping.Targets) == 0 || got.Ladder.InternetTarget == "" {
+		t.Fatalf("Deps{}.probes() = %+v", got)
+	}
+
+	// And a supplied probes.yml reaches the specs. Asserted through the
+	// traceroute param default because that is the one configured value visible
+	// without running anything -- if the config did not arrive, this is the
+	// shipped 8.8.8.8.
+	custom := corenet.DefaultProbes()
+	custom.Ladder.InternetTarget = "9.9.9.9"
+	for _, c := range Checks(Deps{Probes: &custom}) {
+		if c.Spec().ID != network.TracerouteID {
+			continue
+		}
+		if got := c.Spec().Params[0].Default; got != "9.9.9.9" {
+			t.Errorf("traceroute defaults to %q; the resolved probes.yml did not reach the checks", got)
 		}
 	}
 }
