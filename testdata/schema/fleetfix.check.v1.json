@@ -1,0 +1,223 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/KingPin/FleetFix/testdata/schema/fleetfix.check.v1.json",
+  "title": "fleetfix.check/v1",
+  "description": "One `fleetfix check` run. Consumers pin on the `schema` key, not on the binary version: adding a key is not a breaking change and consumers must ignore keys they do not know. Every key listed here is always present -- FleetFix never omits a key to mean empty -- so a consumer may read any documented path without an existence test. Removing a key, or changing the meaning of one, is what a v2 of this schema would be for.",
+  "type": "object",
+  "required": [
+    "schema",
+    "fleetfix_version",
+    "generated_at",
+    "duration_ms",
+    "host",
+    "operator",
+    "privilege",
+    "status",
+    "exit_code",
+    "error",
+    "counts",
+    "checks",
+    "config_warnings"
+  ],
+  "properties": {
+    "schema": {
+      "description": "The document shape. Pin on this.",
+      "const": "fleetfix.check/v1"
+    },
+    "fleetfix_version": {
+      "description": "The binary that produced the report. Varies independently of `schema`.",
+      "type": "string"
+    },
+    "generated_at": {
+      "description": "When the run finished: RFC 3339, UTC, three digits of subsecond, a literal Z. Truncated rather than rounded, so it never names a millisecond the run had not reached.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+    },
+    "duration_ms": {
+      "description": "Wall-clock milliseconds the run took.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "host": {
+      "description": "The machine the report is about: enough to identify it in an aggregation and to explain a platform-dependent result, and no more.",
+      "type": "object",
+      "required": ["hostname", "os", "arch", "kernel", "distro", "boot_id"],
+      "properties": {
+        "hostname": { "type": "string" },
+        "os": { "type": "string" },
+        "arch": { "type": "string" },
+        "kernel": { "type": "string" },
+        "distro": {
+          "description": "The pretty name from os-release. Empty where the host has none -- empty, never a guess.",
+          "type": "string"
+        },
+        "boot_id": {
+          "description": "Identifies this boot, so a consumer can tell an uptime reset from a rename. Empty where the kernel exposes none.",
+          "type": "string"
+        }
+      }
+    },
+    "operator": {
+      "description": "Who ran the check. A cron job and a person debugging are different events, and the difference is worth seeing in an aggregation.",
+      "type": "object",
+      "required": ["unix_user", "auth_principal", "source_ip"],
+      "properties": {
+        "unix_user": { "type": "string" },
+        "auth_principal": {
+          "description": "A vendor-neutral second-factor or SSO identity, populated out of band. FleetFix speaks no auth protocol and never synthesizes a value here, so this is empty unless something else set it.",
+          "type": "string"
+        },
+        "source_ip": {
+          "description": "The client address from SSH_CONNECTION, empty on a local or non-SSH session.",
+          "type": "string"
+        }
+      }
+    },
+    "privilege": {
+      "description": "What the process could do. Without it a skipped Tier 2 check is indistinguishable from a deselected one, and an unmonitored host looks like a healthy one.",
+      "type": "object",
+      "required": ["uid", "is_root", "can_tier2", "reason"],
+      "properties": {
+        "uid": { "type": "integer" },
+        "is_root": { "type": "boolean" },
+        "can_tier2": {
+          "description": "Whether root-requiring checks could run: true for root, or for a working non-interactive sudo.",
+          "type": "boolean"
+        },
+        "reason": {
+          "description": "Why can_tier2 is false, in the operator's terms. An expired cached credential reads very differently from a user not in sudoers. Empty when can_tier2 is true.",
+          "type": "string"
+        }
+      }
+    },
+    "status": {
+      "description": "The worst status among the checks. A frozen enum: adding a seventh value is a breaking change, because every consumer switching on it has an else branch that would silently start catching the new one.",
+      "$ref": "#/$defs/status"
+    },
+    "exit_code": {
+      "description": "The process exit code, monitoring-plugin convention. 0 ok, 1 warning, 2 critical, 3 unknown. `skipped` and `unavailable` exit 0: a host without docker is a supported host, not a paging event.",
+      "type": "integer",
+      "enum": [0, 1, 2, 3]
+    },
+    "error": {
+      "description": "Why the run did not happen -- a config that would not parse, a selector that named nothing. Empty on every run that reached the checks, including one where individual checks errored; those explain themselves in checks[].error.",
+      "type": "string"
+    },
+    "counts": {
+      "description": "How many checks landed in each status. Sums to the length of `checks`.",
+      "type": "object",
+      "required": ["ok", "warn", "crit", "skipped", "unavailable", "error"],
+      "properties": {
+        "ok": { "type": "integer", "minimum": 0 },
+        "warn": { "type": "integer", "minimum": 0 },
+        "crit": { "type": "integer", "minimum": 0 },
+        "skipped": { "type": "integer", "minimum": 0 },
+        "unavailable": { "type": "integer", "minimum": 0 },
+        "error": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "checks": {
+      "description": "One entry per check that was selected, ordered by id. Ordered rather than in completion order so two runs against an unchanged host produce the same bytes.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/result" }
+    },
+    "config_warnings": {
+      "description": "Every complaint the config layers produced, in the order they were found. In the document rather than on stderr because a cron job discards stderr, and a threshold ignored for a typo is exactly what makes a fleet quietly stop alerting.",
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "$defs": {
+    "status": {
+      "type": "string",
+      "enum": ["ok", "warn", "crit", "skipped", "unavailable", "error"],
+      "description": "ok: graded and fine. warn/crit: a threshold tripped. skipped: not attempted -- a missing privilege, an unsupplied parameter. unavailable: the host does not have what the check needs, which is a supported state and not a fault. error: the check itself broke, which is ranked above warn because an unnoticed broken check is how a fleet stays green while a disk fills."
+    },
+    "result": {
+      "type": "object",
+      "required": ["id", "status", "summary", "trips", "metrics", "data", "steps", "error"],
+      "properties": {
+        "id": {
+          "description": "The check's stable dotted identifier. Ids may be retired but are never repurposed, so an alert pinned to one can only ever stop matching -- it can never start matching something else.",
+          "type": "string",
+          "pattern": "^[a-z0-9]+(_[a-z0-9]+)*(\\.[a-z0-9]+(_[a-z0-9]+)*)+$"
+        },
+        "status": { "$ref": "#/$defs/status" },
+        "summary": {
+          "description": "One line of plain text. Never markup: this is read by a terminal, a JSON consumer and a TUI, and only one of those can render markup.",
+          "type": "string"
+        },
+        "trips": {
+          "description": "Every threshold this check crossed. Empty when nothing tripped.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/trip" }
+        },
+        "metrics": {
+          "description": "The alerting contract. Names and labels are stable; this is what `--prom` emits and what an agent pushes.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/metric" }
+        },
+        "data": {
+          "description": "Best-effort detail whose shape depends on `id`. Not a contract -- do not alert on it. Null where a check has nothing structured to add.",
+          "type": ["object", "array", "string", "number", "boolean", "null"]
+        },
+        "steps": {
+          "description": "What the check reported as it went, in order. The same events the TUI paints live. Empty for a check that produces its answer in one step.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/event" }
+        },
+        "error": {
+          "description": "Why this check failed, when its status is error. Empty otherwise.",
+          "type": "string"
+        }
+      }
+    },
+    "trip": {
+      "type": "object",
+      "required": ["rule", "status", "value", "bound", "unit", "subject"],
+      "properties": {
+        "rule": {
+          "description": "The threshold rule's id, which is also the key an operator overrides in thresholds.yml.",
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["ok", "warn", "crit"]
+        },
+        "value": { "description": "What was measured.", "type": "number" },
+        "bound": { "description": "The bound it crossed.", "type": "number" },
+        "unit": { "type": "string" },
+        "subject": {
+          "description": "What was measured, where a rule grades more than one thing: a mount point, an interface, a thermal zone. Empty for a host-wide rule.",
+          "type": "string"
+        }
+      }
+    },
+    "metric": {
+      "type": "object",
+      "required": ["name", "value", "unit", "labels", "kind", "help"],
+      "properties": {
+        "name": { "type": "string" },
+        "value": { "type": "number" },
+        "unit": { "type": "string" },
+        "labels": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "kind": { "type": "string", "enum": ["gauge", "counter"] },
+        "help": { "type": "string" }
+      }
+    },
+    "event": {
+      "type": "object",
+      "required": ["text", "status"],
+      "properties": {
+        "text": {
+          "description": "Plain text, never markup.",
+          "type": "string"
+        },
+        "status": { "$ref": "#/$defs/status" }
+      }
+    }
+  }
+}

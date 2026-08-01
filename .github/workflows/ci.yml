@@ -132,6 +132,10 @@ jobs:
           # every branch in it decides what a consumer is told -- a status that
           # ranks wrong or a slice that marshals to null is a fleet-wide wire bug.
           internal/check=95
+          # The published JSON contract. Nothing outside this repository can be
+          # fixed by a later release once a consumer pins on it, so every branch
+          # that decides a key, a type or an ordering is worth the floor.
+          internal/report=95
           internal/cmdrun=95
           internal/hostfs=95
           internal/logging=95
