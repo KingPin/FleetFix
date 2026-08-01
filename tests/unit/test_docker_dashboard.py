@@ -11,17 +11,11 @@ from fleetfix.modules.docker.dashboard import (
     parse_inspect_fields,
     parse_ps_json_lines,
 )
+from tests.support.fixtures import fixture
 
 
 def test_parse_ps_json_lines_handles_blank_and_garbage_lines() -> None:
-    text = (
-        '{"ID":"abc","Names":"web","Image":"nginx","State":"running",'
-        '"Status":"Up 2 hours","Ports":"80/tcp"}\n'
-        "\n"
-        "not json\n"
-        '{"ID":"def","Names":"db","Image":"pg","State":"exited",'
-        '"Status":"Exited (0) 1 hour ago","Ports":""}\n'
-    )
+    text = fixture("docker/ps_json_with_garbage.txt")
     rows = parse_ps_json_lines(text)
     assert len(rows) == 2
     assert rows[0]["ID"] == "abc"

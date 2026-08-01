@@ -1,0 +1,98 @@
+version: "2"
+
+# The Python side runs ruff with bandit (`S`) on, and the two suppressions it
+# carries -- S603/S607, subprocess with a partial executable name -- exist because
+# shelling out to ping/ss/smartctl/docker is what this tool does. The Go config
+# keeps that posture: gosec on, with the equivalent subprocess rule suppressed in
+# exactly one package instead of globally.
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - bodyclose
+    - depguard
+    - errorlint
+    - gosec
+    - misspell
+    - nilerr
+    - revive
+    - unconvert
+    - unparam
+    - usetesting
+
+  settings:
+    depguard:
+      rules:
+        # Architectural boundaries, enforced at import time rather than by review.
+        # The Python two-layer rule ("no Textual imports inside modules/") was
+        # documentation only; this is the same rule with teeth.
+        subprocess-through-cmdrun:
+          list-mode: lax
+          files:
+            - "!**/internal/cmdrun/**"
+          deny:
+            - pkg: os/exec
+              desc: >-
+                run external commands through internal/cmdrun.Runner so tests can
+                fake them; a direct os/exec call is untestable without a real host
+
+        tui-only-terminal-packages:
+          list-mode: lax
+          files:
+            - "!**/internal/tui/**"
+          deny:
+            - pkg: github.com/rivo/tview
+              desc: terminal rendering belongs in internal/tui; check --json and the agent must not depend on it
+            - pkg: github.com/gdamore/tcell/v2
+              desc: terminal rendering belongs in internal/tui; check --json and the agent must not depend on it
+
+        yaml-only-in-config:
+          list-mode: lax
+          files:
+            - "!**/internal/config/**"
+          deny:
+            - pkg: gopkg.in/yaml.v3
+              desc: >-
+                yaml.v3 is archived upstream; confining it to internal/config keeps
+                a swap to another decoder a one-package change
+
+    revive:
+      rules:
+        - name: exported
+          disabled: false
+        - name: package-comments
+          disabled: false
+
+    gosec:
+      excludes:
+        # G115 (integer overflow on conversion) fires on nearly every
+        # strconv-then-narrow in a parser. The parsers are the differential
+        # harness's whole subject and their conversions are bounds-checked by the
+        # tests that compare them against Python.
+        - G115
+
+  exclusions:
+    rules:
+      # Subprocess execution with a variable argv is the entire point of the
+      # cmdrun seam -- this is the Go equivalent of ruff's S603/S607.
+      - path: internal/cmdrun/
+        linters: [gosec]
+        text: "G204"
+      # Usage text and diagnostics written to the caller's stream. A failed write to
+      # a diagnostic stream has nowhere left to be reported -- complaining about it
+      # would use the same stream that just refused a write. The writes that carry
+      # actual output are checked: the report goes through checkcmd.Run, which
+      # returns its encoder's error, and `--version` checks its own Fprintf.
+      - path: internal/cli/
+        linters: [errcheck]
+        text: "fmt\\.Fprint"
+
+      - path: _test\.go$
+        linters: [gosec, unparam, errcheck]
+
+formatters:
+  enable:
+    - gofumpt
+  settings:
+    gofumpt:
+      extra-rules: true

@@ -1,0 +1,127 @@
+"""Structural checks on ``testdata/cases.jsonl``.
+
+The manifest is the contract between the Python implementation and the Go port:
+each record names a fixture, the function that consumes it, and the arguments to
+call it with. Both sides read this one file, so a mistake in it does not fail
+loudly -- it silently changes what the differential harness compares, or drops a
+fixture from the comparison entirely. These tests are what make that loud.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from typing import Any
+
+import pytest
+
+from tests.support.fixtures import TESTDATA, fixture_bytes
+
+MANIFEST = TESTDATA / "cases.jsonl"
+KEYS = {"id", "fn", "fixture", "sha256", "input", "args"}
+SCALARS = (str, int, float, bool)
+
+
+def load() -> list[dict[str, Any]]:
+    lines = MANIFEST.read_text(encoding="utf-8").splitlines()
+    return [json.loads(line) for line in lines if line.strip()]
+
+
+CASES = load()
+
+
+def derived_id(case: dict[str, Any]) -> str:
+    """The id a case must carry, given its fixture and optional variant suffix.
+
+    Deriving ids from fixture paths makes them unique by construction and lets a
+    reader get from a failing case back to the bytes without a lookup. The
+    ``#suffix`` form exists for the fixtures that legitimately feed two different
+    functions -- smartctl's SATA capture answers both "is it healthy" and "what
+    are the attributes".
+    """
+    _, _, variant = case["id"].partition("#")
+    stem = str(case["fixture"]).rsplit(".", 1)[0].replace("/", ".")
+    return f"{stem}#{variant}" if variant else stem
+
+
+def test_manifest_is_not_empty() -> None:
+    assert CASES, f"{MANIFEST} has no cases"
+
+
+@pytest.mark.parametrize("case", CASES, ids=lambda c: str(c["id"]))
+def test_case_has_exactly_the_expected_keys(case: dict[str, Any]) -> None:
+    assert set(case) == KEYS
+
+
+@pytest.mark.parametrize("case", CASES, ids=lambda c: str(c["id"]))
+def test_case_id_is_derived_from_its_fixture_path(case: dict[str, Any]) -> None:
+    assert case["id"] == derived_id(case)
+
+
+@pytest.mark.parametrize("case", CASES, ids=lambda c: str(c["id"]))
+def test_case_input_kind_is_known(case: dict[str, Any]) -> None:
+    # "text" hands the bytes to the function; "path" writes them to a temp file
+    # and hands over the path. Anything else has no defined meaning on either side.
+    assert case["input"] in {"text", "path"}
+
+
+@pytest.mark.parametrize("case", CASES, ids=lambda c: str(c["id"]))
+def test_case_args_survive_a_language_boundary(case: dict[str, Any]) -> None:
+    """Arguments must be JSON scalars, flat lists of them, or flat string maps.
+
+    Anything richer would need a bespoke decoder in each implementation, and the
+    two decoders would drift.
+    """
+    for name, value in case["args"].items():
+        if isinstance(value, list):
+            assert all(isinstance(v, SCALARS) for v in value), f"{name}: nested list"
+        elif isinstance(value, dict):
+            assert all(isinstance(k, str) and isinstance(v, SCALARS) for k, v in value.items()), (
+                f"{name}: nested mapping"
+            )
+        else:
+            assert isinstance(value, SCALARS) or value is None, f"{name}: {type(value)}"
+
+
+@pytest.mark.parametrize("case", CASES, ids=lambda c: str(c["id"]))
+def test_case_fixture_exists_and_matches_its_checksum(case: dict[str, Any]) -> None:
+    rel = str(case["fixture"])
+    path = TESTDATA / rel
+    assert path.is_file(), f"{rel} is named by case {case['id']} but is not on disk"
+    actual = hashlib.sha256(fixture_bytes(rel)).hexdigest()
+    assert actual == case["sha256"], (
+        f"{rel} changed. If the new bytes are intended, update the case's sha256 to "
+        f"{actual} -- and re-check that the case still means what it used to."
+    )
+
+
+def test_case_ids_are_unique() -> None:
+    ids = [c["id"] for c in CASES]
+    dupes = sorted({i for i in ids if ids.count(i) > 1})
+    assert not dupes, f"duplicate case ids: {dupes}"
+
+
+def test_repeated_fixture_references_agree_on_the_checksum() -> None:
+    by_fixture: dict[str, set[str]] = {}
+    for case in CASES:
+        by_fixture.setdefault(str(case["fixture"]), set()).add(str(case["sha256"]))
+    conflicting = {rel: sorted(shas) for rel, shas in by_fixture.items() if len(shas) > 1}
+    assert not conflicting, f"same fixture, different recorded checksums: {conflicting}"
+
+
+def test_every_fixture_on_disk_is_referenced_by_a_case() -> None:
+    """An unreferenced fixture is dead weight the harness never compares.
+
+    Which is the failure mode that looks exactly like success: the corpus grows,
+    the differential run stays green, and the new capture is never actually parsed
+    by either implementation.
+    """
+    on_disk = {
+        p.relative_to(TESTDATA).as_posix()
+        for p in TESTDATA.rglob("*")
+        if p.is_file() and p != MANIFEST
+    }
+    referenced = {str(c["fixture"]) for c in CASES}
+    assert not (on_disk - referenced), (
+        f"fixtures no case references: {sorted(on_disk - referenced)}"
+    )

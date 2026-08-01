@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fleetfix.config import read_perf_yaml, resolve_reduce_animations
+from tests.support.fixtures import fixture
 
 
 def test_explicit_true_wins_on_multicore() -> None:
@@ -41,11 +42,11 @@ def test_read_perf_yaml_missing_file_is_empty(tmp_path: Path) -> None:
 
 def test_read_perf_yaml_parses_mapping(tmp_path: Path) -> None:
     p = tmp_path / "perf.yml"
-    p.write_text("reduce_animations: true\n", encoding="utf-8")
+    p.write_text(fixture("perf/reduce_animations_true.yml"), encoding="utf-8")
     assert read_perf_yaml(p) == {"reduce_animations": True}
 
 
 def test_read_perf_yaml_malformed_is_empty(tmp_path: Path) -> None:
     p = tmp_path / "perf.yml"
-    p.write_text("reduce_animations: [unterminated\n", encoding="utf-8")
+    p.write_text(fixture("perf/malformed.yml"), encoding="utf-8")
     assert read_perf_yaml(p) == {}

@@ -1,0 +1,3 @@
+endpoint: https://ingest.example.com:443
+headers:
+  a: '1'

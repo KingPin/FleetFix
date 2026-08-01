@@ -1,0 +1,4 @@
+# Captured command output is a byte-exact corpus shared by two implementations.
+# Git must not normalise line endings or trailing whitespace in it: several
+# fixtures exist to pin down exactly how a parser handles those.
+testdata/** -text

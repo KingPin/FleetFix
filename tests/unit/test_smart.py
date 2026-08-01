@@ -8,49 +8,13 @@ from fleetfix.modules.disk.smart import (
     parse_nvme_attributes,
     parse_sata_attributes,
 )
+from tests.support.fixtures import fixture
 
-_SATA_FIXTURE = """\
-smartctl 7.3 2022-02-28 r5338 [x86_64-linux-5.15.0-1-generic] (local build)
-Copyright (C) 2002-22, Bruce Allen, Christian Franke, www.smartmontools.org
+_SATA_FIXTURE = fixture("smartctl/sata_passed.txt")
 
-=== START OF READ SMART DATA SECTION ===
-SMART overall-health self-assessment test result: PASSED
+_NVME_FIXTURE = fixture("smartctl/nvme_passed.txt")
 
-SMART Attributes Data Structure revision number: 16
-Vendor Specific SMART Attributes with Thresholds:
-ID# ATTRIBUTE_NAME          FLAG     VALUE WORST THRESH TYPE      UPDATED  WHEN_FAILED RAW_VALUE
-  5 Reallocated_Sector_Ct   0x0033   100   100   010    Pre-fail  Always       -       3
-  9 Power_On_Hours          0x0032   099   099   000    Old_age   Always       -       1234
-187 Reported_Uncorrect      0x0032   100   100   000    Old_age   Always       -       0
-197 Current_Pending_Sector  0x0032   100   100   000    Old_age   Always       -       0
-233 Media_Wearout_Indicator 0x0032   088   088   000    Old_age   Always       -       12
-"""
-
-_NVME_FIXTURE = """\
-smartctl 7.3 2022-02-28 r5338 [x86_64-linux-5.15.0-1-generic] (local build)
-Copyright (C) 2002-22, Bruce Allen, Christian Franke, www.smartmontools.org
-
-=== START OF SMART DATA SECTION ===
-SMART overall-health self-assessment test result: PASSED
-
-SMART/Health Information (NVMe Log 0x02)
-Critical Warning:                   0x00
-Temperature:                        38 Celsius
-Available Spare:                    100%
-Available Spare Threshold:          10%
-Percentage Used:                    3%
-Data Units Read:                    1,234,567 [632 GB]
-Data Units Written:                 234,567 [120 GB]
-Host Read Commands:                 12,345,678
-Host Write Commands:                2,345,678
-Media and Data Integrity Errors:    0
-Error Information Log Entries:      0
-"""
-
-_FAILED_FIXTURE = """\
-=== START OF READ SMART DATA SECTION ===
-SMART overall-health self-assessment test result: FAILED!
-"""
+_FAILED_FIXTURE = fixture("smartctl/health_failed.txt")
 
 
 def test_parse_health_passed() -> None:
@@ -92,7 +56,7 @@ def test_parse_nvme_attributes() -> None:
 
 
 def test_parse_nvme_attributes_handles_comma_separated_ints() -> None:
-    text = "Media and Data Integrity Errors:    12,345\n"
+    text = fixture("smartctl/nvme_comma_separated_ints.txt")
     attrs = parse_nvme_attributes(text)
     assert attrs["media_and_data_integrity_errors"] == 12345
 

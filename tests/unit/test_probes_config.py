@@ -11,26 +11,10 @@ from fleetfix.modules.network.probes import (
     resolve_probes,
 )
 from fleetfix.modules.network.tcp import TcpTarget
+from tests.support.fixtures import fixture
 
 # The example config the README documents, round-tripped end to end.
-_EXAMPLE = """\
-ping:
-  targets: [10.0.0.1, 8.8.8.8]
-  count: 5
-  interval_s: 0.3
-dns:
-  names: [db.corp.internal, github.com]
-http:
-  urls: [https://api.corp.internal/health]
-tcp:
-  targets: ["db.corp.internal:5432", "https://api.corp.internal"]
-traceroute:
-  max_hops: 20
-ladder:
-  internet_target: 9.9.9.9
-  dns_name: db.corp.internal
-  https_url: https://api.corp.internal/health
-"""
+_EXAMPLE = fixture("probes/full_example.yml")
 
 
 def test_no_config_yields_the_built_in_defaults() -> None:
@@ -128,19 +112,19 @@ def test_missing_file_reads_as_empty(tmp_path: Path) -> None:
 
 def test_invalid_yaml_reads_as_empty(tmp_path: Path) -> None:
     path = tmp_path / "probes.yml"
-    path.write_text("ping: [unclosed\n")
+    path.write_text(fixture("probes/malformed.yml"))
     assert read_probes_yaml(path) == {}
 
 
 def test_top_level_list_reads_as_empty(tmp_path: Path) -> None:
     path = tmp_path / "probes.yml"
-    path.write_text("- 8.8.8.8\n- 1.1.1.1\n")
+    path.write_text(fixture("probes/top_level_list.yml"))
     assert read_probes_yaml(path) == {}
 
 
 def test_load_probes_never_raises_on_a_broken_file(tmp_path: Path) -> None:
     path = tmp_path / "probes.yml"
-    path.write_text("ping: {count: banana\n")
+    path.write_text(fixture("probes/broken_mapping.yml"))
     # A broken config must never be why the Network screen won't open.
     assert load_probes(path=path) == DEFAULT_PROBES
 

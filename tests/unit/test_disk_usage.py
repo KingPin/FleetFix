@@ -9,18 +9,9 @@ from fleetfix.modules.disk.usage import (
     fullest,
     parse_df,
 )
+from tests.support.fixtures import fixture
 
-_FIXTURE = """\
-Filesystem     1024-blocks      Used Available Capacity Mounted on
-udev               4060000         0   4060000       0% /dev
-tmpfs               820000      1200    818800       1% /run
-/dev/sda1        102400000  51200000  51200000      50% /
-/dev/sdb1         52428800  47185920   5242880      90% /var
-/dev/sdc1         20971520  20132659    838861      96% /var/lib/docker
-tmpfs               820000         0    820000       0% /dev/shm
-/dev/sda2                0         0         0       -  /boot/efi
-overlay           12345678   1000000  11345678       8% /var/lib/docker/overlay2/abc
-"""
+_FIXTURE = fixture("df/usage_mixed.txt")
 
 
 def test_parse_skips_pseudo_filesystems() -> None:
@@ -82,10 +73,7 @@ def test_fullest_empty_is_none() -> None:
 
 
 def test_parse_handles_mount_with_spaces() -> None:
-    text = (
-        "Filesystem     1024-blocks      Used Available Capacity Mounted on\n"
-        "/dev/sdd1          1000000    500000    500000      50% /mnt/with space\n"
-    )
+    text = fixture("df/usage_mount_with_spaces.txt")
     rows = parse_df(text)
     assert len(rows) == 1
     assert rows[0].mount == "/mnt/with space"
@@ -93,9 +81,6 @@ def test_parse_handles_mount_with_spaces() -> None:
 
 def test_parse_handles_missing_capacity_percent() -> None:
     # Some df builds emit "-" for the percentage on dynamic filesystems.
-    text = (
-        "Filesystem     1024-blocks      Used Available Capacity Mounted on\n"
-        "/dev/sde1          1000000    300000    700000       - /mnt/x\n"
-    )
+    text = fixture("df/usage_missing_capacity.txt")
     rows = parse_df(text)
     assert rows[0].used_pct == 30  # computed from used/total

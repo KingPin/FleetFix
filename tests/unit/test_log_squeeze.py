@@ -17,6 +17,7 @@ from fleetfix.modules.log_squeeze.gzip_inplace import (
     is_open_for_write,
     squeeze_log,
 )
+from tests.support.fixtures import fixture
 
 
 @pytest.fixture
@@ -92,19 +93,19 @@ def test_is_open_returns_false_when_lsof_clean() -> None:
 
 
 def test_is_open_returns_true_when_writer_present() -> None:
-    output = "p123\ncrsyslogd\nf3\naw\nn/var/log/syslog\n"
+    output = fixture("lsof/open_writer.txt")
     proc = _completed(returncode=0, stdout=output)
     assert is_open_for_write(Path("/var/log/syslog"), run=proc) is True
 
 
 def test_is_open_treats_rw_mode_as_writer() -> None:
-    output = "p99\nfsomething\nau\n"
+    output = fixture("lsof/open_rw_mode.txt")
     proc = _completed(returncode=0, stdout=output)
     assert is_open_for_write(Path("/var/log/x"), run=proc) is True
 
 
 def test_is_open_read_only_is_not_a_writer() -> None:
-    output = "p99\nfsomething\nar\n"
+    output = fixture("lsof/open_read_only.txt")
     proc = _completed(returncode=0, stdout=output)
     assert is_open_for_write(Path("/var/log/x"), run=proc) is False
 

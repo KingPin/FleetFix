@@ -1,0 +1,2 @@
+FLEETFIX_CURL_PROBE
+http_code=200

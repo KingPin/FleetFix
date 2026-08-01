@@ -16,6 +16,7 @@ from fleetfix.audit.otel import (
     load_otel_config,
     make_sink,
 )
+from tests.support.fixtures import fixture
 
 
 def test_parse_headers_env_basic() -> None:
@@ -35,11 +36,7 @@ def test_load_otel_config_returns_none_when_unset(tmp_path: Path) -> None:
 def test_load_otel_config_reads_yaml(tmp_path: Path) -> None:
     p = tmp_path / "otel.yml"
     p.write_text(
-        "endpoint: https://ingest.example.com:443\n"
-        "service_name: fleetfix-test\n"
-        "headers:\n"
-        "  x-otlp-token: abc\n"
-        "insecure: false\n",
+        fixture("otel/full.yml"),
         encoding="utf-8",
     )
     cfg = load_otel_config(path=p, env={})
@@ -53,7 +50,7 @@ def test_load_otel_config_reads_yaml(tmp_path: Path) -> None:
 def test_load_otel_config_env_overrides_yaml(tmp_path: Path) -> None:
     p = tmp_path / "otel.yml"
     p.write_text(
-        "endpoint: https://ingest.example.com:443\nheaders:\n  a: '1'\n",
+        fixture("otel/endpoint_and_headers.yml"),
         encoding="utf-8",
     )
     cfg = load_otel_config(
@@ -75,7 +72,7 @@ def test_load_otel_config_env_overrides_yaml(tmp_path: Path) -> None:
 
 def test_load_otel_config_skips_malformed_yaml(tmp_path: Path) -> None:
     p = tmp_path / "otel.yml"
-    p.write_text("endpoint: [unterminated\n", encoding="utf-8")
+    p.write_text(fixture("otel/malformed.yml"), encoding="utf-8")
     cfg = load_otel_config(path=p, env={"FLEETFIX_OTLP_ENDPOINT": "https://x:443"})
     assert cfg is not None
     assert cfg.endpoint == "https://x:443"
@@ -83,7 +80,7 @@ def test_load_otel_config_skips_malformed_yaml(tmp_path: Path) -> None:
 
 def test_load_otel_config_yaml_not_a_mapping(tmp_path: Path) -> None:
     p = tmp_path / "otel.yml"
-    p.write_text("- just\n- a\n- list\n", encoding="utf-8")
+    p.write_text(fixture("otel/top_level_list.yml"), encoding="utf-8")
     assert load_otel_config(path=p, env={}) is None
 
 

@@ -1,0 +1,2 @@
+=== START OF READ SMART DATA SECTION ===
+SMART overall-health self-assessment test result: FAILED!

@@ -9,28 +9,11 @@ import pytest
 
 from fleetfix.modules.network import curl_probe
 from fleetfix.modules.network.curl_probe import parse_curl_output, probe
+from tests.support.fixtures import fixture
 
-_HEALTHY = """\
-FLEETFIX_CURL_PROBE
-http_code=200
-time_namelookup=0.001234
-time_connect=0.012345
-time_appconnect=0.045678
-time_starttransfer=0.098765
-time_total=0.123456
-size_download=4096
-"""
+_HEALTHY = fixture("curl/ok_200.txt")
 
-_NOT_FOUND = """\
-FLEETFIX_CURL_PROBE
-http_code=404
-time_namelookup=0.000100
-time_connect=0.001000
-time_appconnect=0.000000
-time_starttransfer=0.005000
-time_total=0.006000
-size_download=120
-"""
+_NOT_FOUND = fixture("curl/not_found_404.txt")
 
 
 def test_parse_healthy() -> None:
@@ -51,11 +34,11 @@ def test_parse_4xx_marked_not_ok() -> None:
 
 
 def test_parse_missing_marker_returns_none() -> None:
-    assert parse_curl_output("https://x", "stderr output, no marker\n") is None
+    assert parse_curl_output("https://x", fixture("curl/no_marker.txt")) is None
 
 
 def test_parse_partial_fields_returns_none() -> None:
-    bad = "FLEETFIX_CURL_PROBE\nhttp_code=200\n"
+    bad = fixture("curl/partial_fields.txt")
     assert parse_curl_output("https://x", bad) is None
 
 
@@ -96,7 +79,7 @@ def test_probe_returns_failure_when_no_marker_present(monkeypatch: pytest.Monkey
             args=args,
             returncode=6,
             stdout="",
-            stderr="curl: (6) Could not resolve host: nope.example\n",
+            stderr=fixture("curl/resolve_failed.txt"),
         )
 
     monkeypatch.setattr(curl_probe.subprocess, "run", fake_run)
@@ -115,7 +98,7 @@ def test_probe_records_stderr_alongside_a_successful_parse(
             args=args,
             returncode=0,
             stdout=_HEALTHY,
-            stderr="curl: (60) certificate verify skipped\n",
+            stderr=fixture("curl/cert_verify_skipped.txt"),
         )
 
     monkeypatch.setattr(curl_probe.subprocess, "run", fake_run)

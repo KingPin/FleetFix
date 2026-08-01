@@ -17,6 +17,7 @@ from fleetfix.updater.installer import (
     resolve_install_target,
     sha256_file,
 )
+from tests.support.fixtures import fixture
 
 ASSET = "fleetfix-linux-x86_64"
 
@@ -55,7 +56,7 @@ def test_parse_sha256_line_with_binary_marker() -> None:
 
 
 def test_parse_sha256_line_returns_none_when_missing() -> None:
-    text = "abc123  some-other-file\n"
+    text = fixture("sha256sums/other_file_only.txt")
     assert parse_sha256_line(text, asset_name=ASSET) is None
 
 

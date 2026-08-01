@@ -1,0 +1,6 @@
+# comment line
+DB_URL=postgres://localhost
+API_KEY='s3cret'
+DEBUG="true"
+
+export PORT=5432

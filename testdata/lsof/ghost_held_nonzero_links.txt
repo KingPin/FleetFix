@@ -1,0 +1,11 @@
+p1
+cfoo
+uroot
+f0
+s100
+L1
+n/var/log/foo
+f1
+s200
+L2
+n/var/log/bar

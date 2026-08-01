@@ -1,0 +1,3 @@
+GOOD=ok
+this line is garbage
+ALSO_GOOD=also-ok

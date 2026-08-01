@@ -3,31 +3,13 @@
 from __future__ import annotations
 
 from fleetfix.modules.disk.ghost import GhostFile, parse_lsof_field_output, total_bytes
+from tests.support.fixtures import fixture
 
 # lsof -F pcuLfsn +L1 produces one field per line. Tags:
 #   p = pid (starts a process), c = command, u = user
 #   f = fd (starts a file inside a process)
 #   s = size, L = link count, n = name
-_FIXTURE = """\
-p812
-csshd
-uroot
-f3
-s4096
-L1
-n/var/log/auth.log
-f4
-s12345678
-L0
-n/var/log/journal/abc/system.journal (deleted)
-p1234
-cpostgres
-upostgres
-f9
-s99999
-L0
-n/var/lib/postgresql/14/main/pg_log.deleted
-"""
+_FIXTURE = fixture("lsof/ghost_files.txt")
 
 
 def test_parse_emits_only_deleted_files() -> None:
@@ -62,12 +44,12 @@ def test_parse_handles_empty_output() -> None:
 
 
 def test_parse_handles_garbage_size() -> None:
-    text = "p1\ncbad\nu0\nf0\nsoops\nL0\nn/tmp/x\n"
+    text = fixture("lsof/ghost_garbage_size.txt")
     files = parse_lsof_field_output(text)
     assert files == [GhostFile(pid=1, command="bad", user="0", fd="0", size_bytes=0, path="/tmp/x")]
 
 
 def test_parse_ignores_held_files_with_nonzero_links() -> None:
     # All L=1; nothing should be returned.
-    text = "p1\ncfoo\nuroot\nf0\ns100\nL1\nn/var/log/foo\nf1\ns200\nL2\nn/var/log/bar\n"
+    text = fixture("lsof/ghost_held_nonzero_links.txt")
     assert parse_lsof_field_output(text) == []

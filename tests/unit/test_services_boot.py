@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fleetfix.modules.services.boot import OUTLIER_MS, _parse_time, parse_blame
+from tests.support.fixtures import fixture
 
 
 def test_parse_time_seconds_only() -> None:
@@ -27,12 +28,7 @@ def test_parse_time_empty_returns_none() -> None:
 
 
 def test_parse_blame_classic_output() -> None:
-    text = (
-        "59.647s archlinux-keyring-wkd-sync.service\n"
-        " 5.569s NetworkManager-wait-online.service\n"
-        "  559ms NetworkManager.service\n"
-        "  1min 2.234s long-thing.service\n"
-    )
+    text = fixture("systemd_analyze/blame_classic.txt")
     entries = parse_blame(text)
     assert len(entries) == 4
     assert entries[0].unit == "archlinux-keyring-wkd-sync.service"
@@ -43,7 +39,7 @@ def test_parse_blame_classic_output() -> None:
 
 
 def test_parse_blame_skips_blank_lines() -> None:
-    text = "\n\n5s foo.service\n\n"
+    text = fixture("systemd_analyze/blame_blank_lines.txt")
     entries = parse_blame(text)
     assert len(entries) == 1
     assert entries[0].unit == "foo.service"

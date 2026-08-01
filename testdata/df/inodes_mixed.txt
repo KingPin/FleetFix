@@ -1,0 +1,9 @@
+Filesystem       Inodes   IUsed   IFree IUse% Mounted on
+udev            2034567     500 2034067    1% /dev
+tmpfs           2046789     800 2045989    1% /run
+/dev/sda1      62500000 5800000 56700000   10% /
+/dev/sdb1      31250000 28000000 3250000   90% /var
+/dev/sdc1      15625000 15000000  625000   96% /var/lib/docker
+tmpfs           2046789       1 2046788    1% /dev/shm
+/dev/sda2             0       0       0    -  /boot/efi
+overlay          123456    1000  122456    1% /var/lib/docker/overlay2/abc

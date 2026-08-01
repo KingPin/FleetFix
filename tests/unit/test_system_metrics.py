@@ -7,19 +7,11 @@ from pathlib import Path
 import pytest
 
 from fleetfix.modules.system import metrics, thermal
+from tests.support.fixtures import fixture
 
-SAMPLE_UPTIME = "12345.67 98765.43\n"
-SAMPLE_LOADAVG = "0.12 0.34 0.56 2/345 6789\n"
-SAMPLE_MEMINFO = """\
-MemTotal:       16384000 kB
-MemFree:         2048000 kB
-MemAvailable:    8192000 kB
-Buffers:          128000 kB
-Cached:          4096000 kB
-SwapTotal:       4194304 kB
-SwapFree:        3145728 kB
-Dirty:              1234 kB
-"""
+SAMPLE_UPTIME = fixture("proc/uptime.txt")
+SAMPLE_LOADAVG = fixture("proc/loadavg.txt")
+SAMPLE_MEMINFO = fixture("proc/meminfo/full.txt")
 
 
 @pytest.fixture
@@ -56,7 +48,7 @@ def test_read_meminfo(proc_files: dict[str, Path]) -> None:
 
 def test_meminfo_handles_missing_swap(tmp_path: Path) -> None:
     file = tmp_path / "meminfo"
-    file.write_text("MemTotal: 1000 kB\nMemAvailable: 500 kB\n")
+    file.write_text(fixture("proc/meminfo/no_swap.txt"))
     mem = metrics.read_meminfo(file)
     assert mem.swap_total_kb == 0
     assert mem.swap_used_pct == 0.0
@@ -64,7 +56,7 @@ def test_meminfo_handles_missing_swap(tmp_path: Path) -> None:
 
 def test_meminfo_falls_back_to_memfree_when_available_missing(tmp_path: Path) -> None:
     file = tmp_path / "meminfo"
-    file.write_text("MemTotal: 1000 kB\nMemFree: 250 kB\n")
+    file.write_text(fixture("proc/meminfo/no_memavailable.txt"))
     mem = metrics.read_meminfo(file)
     assert mem.available_kb == 250
 

@@ -11,26 +11,15 @@ from fleetfix.modules.network.interfaces import (
     primary_ipv4,
     read_counters,
 )
+from tests.support.fixtures import fixture
 
 # Destination 00000000 = default route; Gateway 0102A8C0 is little-endian
 # for 192.168.2.1 (C0 A8 02 01).
-_ROUTE = """\
-Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT
-eth0\t00000000\t0102A8C0\t0003\t0\t0\t100\t00000000\t0\t0\t0
-eth0\t0002A8C0\t00000000\t0001\t0\t0\t100\t00FFFFFF\t0\t0\t0
-"""
+_ROUTE = fixture("proc/net/route_with_default.txt")
 
-_ROUTE_NO_DEFAULT = """\
-Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT
-eth0\t0002A8C0\t00000000\t0001\t0\t0\t100\t00FFFFFF\t0\t0\t0
-"""
+_ROUTE_NO_DEFAULT = fixture("proc/net/route_no_default.txt")
 
-_NET_DEV = """\
-Inter-|   Receive                                                |  Transmit
- face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
-    lo: 1234567     100    0    0    0     0          0         0  1234567     100    0    0    0     0       0          0
-  eth0: 9876543     200    0    0    0     0          0         0  5555555     300    0    0    0     0       0          0
-"""
+_NET_DEV = fixture("proc/net/dev.txt")
 
 
 def test_default_route_iface_and_gateway(tmp_path: Path) -> None:

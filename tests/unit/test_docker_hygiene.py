@@ -17,6 +17,7 @@ from fleetfix.modules.docker.hygiene import (
     prune_images,
     prune_volumes,
 )
+from tests.support.fixtures import fixture
 
 
 @pytest.fixture
@@ -46,16 +47,7 @@ class TestParseSize:
 
 
 def test_parse_system_df_json_lines() -> None:
-    text = (
-        '{"Type":"Images","TotalCount":"114","Active":"6","Size":"53.5GB",'
-        '"Reclaimable":"45.68GB (85%)"}\n'
-        '{"Type":"Containers","TotalCount":"7","Active":"7","Size":"136B",'
-        '"Reclaimable":"0B (0%)"}\n'
-        '{"Type":"Local Volumes","TotalCount":"26","Active":"2","Size":"17.71GB",'
-        '"Reclaimable":"444.8MB (2%)"}\n'
-        '{"Type":"Build Cache","TotalCount":"202","Active":"0","Size":"7.817GB",'
-        '"Reclaimable":"7.817GB"}\n'
-    )
+    text = fixture("docker/system_df_json.txt")
     rows = parse_system_df_json_lines(text)
     assert len(rows) == 4
     images: DfRow = rows[0]
@@ -70,7 +62,7 @@ def test_parse_system_df_json_lines() -> None:
 
 
 def test_parse_reclaimed_total_finds_trailing_line() -> None:
-    output = "Deleted Images:\ndeleted: sha256:abc\n\nTotal reclaimed space: 123.4MB\n"
+    output = fixture("docker/prune_reclaimed.txt")
     assert parse_reclaimed_total(output) == int(123.4 * 1000**2)
 
 

@@ -1,0 +1,9 @@
+Filesystem     1024-blocks      Used Available Capacity Mounted on
+udev               4060000         0   4060000       0% /dev
+tmpfs               820000      1200    818800       1% /run
+/dev/sda1        102400000  51200000  51200000      50% /
+/dev/sdb1         52428800  47185920   5242880      90% /var
+/dev/sdc1         20971520  20132659    838861      96% /var/lib/docker
+tmpfs               820000         0    820000       0% /dev/shm
+/dev/sda2                0         0         0       -  /boot/efi
+overlay           12345678   1000000  11345678       8% /var/lib/docker/overlay2/abc

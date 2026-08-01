@@ -64,3 +64,15 @@ secrets.yml
 # Logs the dev environment may produce
 *.log
 logs/
+
+# One-shot output of `tools/harvest_fixtures.py report`; it goes stale as soon as
+# `apply` moves the literals it points at.
+tools/harvest_proposal.json
+
+# Go build output. `dist/` is what the release workflow uploads from; the bare
+# binary is what `go build ./cmd/fleetfix` drops in the working directory.
+/dist/
+/fleetfix
+*.test
+coverage.out
+
