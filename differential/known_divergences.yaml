@@ -23,6 +23,20 @@
 #
 # Deleted at M7 with the rest of the harness.
 divergences:
+  - id: docker.started_at_py311
+    reason: >-
+      An interpreter boundary, not a parser disagreement. The oracle runs CPython
+      3.10 because that is what the v1.6.0 release binary bundles, and 3.10's
+      fromisoformat accepts a fractional-seconds field of exactly three or six
+      digits. 3.11 widened that -- along with hour 24, ISO week dates and basic
+      format -- and internal/pytime implements the widened boundary. The first
+      line of the fixture is the one that matters: docker renders
+      {{.State.StartedAt}} as RFC3339Nano, nine digits, so on the shipped binary
+      every running container's start time reads as None and
+      Container.is_restart_loop reports False for all of them. Reproducing 3.10
+      would ship a parser that cannot read its own input. Split out from
+      docker.started_at so this exemption covers only the nine affected forms.
+    issue: https://github.com/KingPin/FleetFix/issues/10
   - id: probes.nonfinite_int_knob#resolved
     reason: >-
       A non-finite float on an integer knob. v1 calls int(float("inf")) and

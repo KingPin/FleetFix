@@ -324,16 +324,20 @@ func TestDecodeJSONLineRefusesTrailingData(t *testing.T) {
 // A line per case, the way procs.parse_stat_comm_and_ticks does it: _parse_iso
 // takes a single string, so a case per form would be thirty near-identical
 // fixtures and a divergence would name a file rather than a line.
+//
+// This file holds only the forms every supported interpreter agrees on. The ones
+// where 3.11 widened what fromisoformat accepts live in docker/started_at_py311.txt
+// -- see wantStartedAtPy311 for why they had to be split out.
 var wantStartedAt = []string{
-	"2026-07-26T15:04:05.123456+00:00", // what docker actually writes: RFC3339Nano
 	"2026-07-26T15:04:05+00:00",
-	"2026-07-26T15:04:05.500000+00:00",
 	"2026-07-26T15:04:05+00:00",
-	"2026-07-26T15:04:05.123456+05:30",
 	"2026-07-26T15:04:05-05:00",
 	"2026-07-26T15:04:05", // no offset, so a naive reading -- see pytime.Time
 	"2026-07-26T00:00:00",
 	"", // docker's zero value: never started
+	// A nine-digit fraction, which 3.10 rejects -- but the zero-value guard returns
+	// before fromisoformat is reached, so every interpreter answers None here for
+	// the same reason. That is what keeps this line on this side of the split.
 	"",
 	"",                          // the bare date is the prefix too
 	"",                          // ... and the prefix is not parsed, so an impossible clock never gets read
@@ -343,29 +347,60 @@ var wantStartedAt = []string{
 	// str.replace rewrites every "Z", so a "Z" in the separator slot becomes
 	// "+00:00" mid-string and takes a string fromisoformat would have accepted.
 	"",
-	"",                          // a doubled Z, for the same reason
-	"",                          // ... and a Z followed by a real offset
-	"",                          // ... and a leading one
-	"",                          // fromisoformat wants an uppercase Z, and replace only rewrote uppercase
-	"2026-07-27T00:00:00+00:00", // hour 24 is tomorrow's midnight
-	"",                          // 2026 is not a leap year
-	"2026-07-26T15:04:05.123456",
-	"2026-07-26T15:04:05+00:00", // an ISO week date, which fromisoformat accepts
-	"2026-07-26T15:04:05+00:00", // ... as it does basic format
-	"2026-07-26T15:04:05",       // ... and a space for the separator
-	"2026-07-26T15:04:05.123456+00:00",
+	"",                    // a doubled Z, for the same reason
+	"",                    // ... and a Z followed by a real offset
+	"",                    // ... and a leading one
+	"",                    // fromisoformat wants an uppercase Z, and replace only rewrote uppercase
+	"",                    // 2026 is not a leap year
+	"2026-07-26T15:04:05", // a space for the separator
 	"",
+}
+
+// wantStartedAtPy311 is the same measurement for docker/started_at_py311.txt: the
+// forms 3.11 added to fromisoformat's accepted language. Every one of these is a
+// datetime on 3.11+ and None on 3.10, measured on both interpreters rather than
+// read off the changelog.
+//
+// They are a separate fixture because the differential harness runs its Python
+// oracle on 3.10 -- the interpreter the shipped v1.6.0 binary bundles -- so the
+// whole case is a known divergence. Folded back into started_at.txt that
+// exemption would cover the twenty agreed lines too, and the densest parser
+// fixture in the corpus would stop proving anything.
+//
+// The first line is the one that matters operationally: docker renders
+// {{.State.StartedAt}} as RFC3339Nano, so a real container start time always has
+// nine fractional digits. On the shipped binary it parses as None, which makes
+// Container.is_restart_loop return False for every container -- see
+// TestParseISOReadsWhatDockerActuallyWrites.
+var wantStartedAtPy311 = []string{
+	"2026-07-26T15:04:05.123456+00:00", // what docker actually writes: RFC3339Nano
+	"2026-07-26T15:04:05.500000+00:00", // a single fractional digit
+	"2026-07-26T15:04:05.123456+05:30",
+	"2026-07-27T00:00:00+00:00", // hour 24 is tomorrow's midnight
+	"2026-07-26T15:04:05.123456",
+	"2026-07-26T15:04:05+00:00",        // an ISO week date
+	"2026-07-26T15:04:05+00:00",        // ... and basic format
+	"2026-07-26T15:04:05.123456+00:00", // nine fractional digits with a real offset
 	"2026-07-26T15:04:05.123456+00:00", // nineteen fractional digits, six kept
 }
 
 func TestParseISOFixture(t *testing.T) {
-	lines := fixtureLines(t, "docker/started_at.txt")
-	if len(lines) != len(wantStartedAt) {
-		t.Fatalf("fixture has %d lines, the table has %d", len(lines), len(wantStartedAt))
+	assertParseISOFixture(t, "docker/started_at.txt", wantStartedAt)
+}
+
+func TestParseISOFixturePy311Widenings(t *testing.T) {
+	assertParseISOFixture(t, "docker/started_at_py311.txt", wantStartedAtPy311)
+}
+
+func assertParseISOFixture(t *testing.T, rel string, want []string) {
+	t.Helper()
+	lines := fixtureLines(t, rel)
+	if len(lines) != len(want) {
+		t.Fatalf("fixture has %d lines, the table has %d", len(lines), len(want))
 	}
 	for i, line := range lines {
 		got, ok := ParseISO(line)
-		if want := wantStartedAt[i]; want == "" {
+		if want := want[i]; want == "" {
 			if ok {
 				t.Errorf("line %d: ParseISO(%q) = %s, want no answer", i+1, line, got.ISOFormat())
 			}
@@ -375,6 +410,38 @@ func TestParseISOFixture(t *testing.T) {
 		} else if s := got.ISOFormat(); s != want {
 			t.Errorf("line %d: ParseISO(%q) = %s, want %s", i+1, line, s, want)
 		}
+	}
+}
+
+// TestParseISOReadsWhatDockerActuallyWrites is the regression anchor for the third
+// v1.6.0 defect, and the reason the port keeps 3.11+ semantics rather than
+// reproducing the interpreter that shipped.
+//
+// docker renders {{.State.StartedAt}} with Go's RFC3339Nano: nine fractional
+// digits and a "Z". CPython 3.10's fromisoformat accepts a fraction of exactly
+// three or six digits and nothing else, and the v1.6.0 release binary bundles
+// 3.10 -- so on every host running it, _parse_iso returns None for every running
+// container. Container.is_restart_loop then short-circuits at its `started_at is
+// None` guard and reports False, which means a container in a crash loop is never
+// flagged no matter how high its restart count climbs.
+//
+// Reproducing that would be reproducing a parser that cannot read its own input,
+// so this asserts the opposite: the real shape parses, and the restart-loop window
+// it feeds is computed from it.
+func TestParseISOReadsWhatDockerActuallyWrites(t *testing.T) {
+	const rfc3339Nano = "2026-07-26T15:04:05.123456789Z"
+
+	got, ok := ParseISO(rfc3339Nano)
+	if !ok {
+		t.Fatalf("ParseISO(%q) = no answer; docker writes this shape for every running container", rfc3339Nano)
+	}
+	if !got.Aware {
+		t.Errorf("ParseISO(%q) is naive; is_restart_loop subtracts it from an aware now", rfc3339Nano)
+	}
+	// Six digits kept, the rest dropped -- Python has microsecond resolution, so
+	// the nanoseconds docker offers have nowhere to go.
+	if want := "2026-07-26T15:04:05.123456+00:00"; got.ISOFormat() != want {
+		t.Errorf("ParseISO(%q) = %s, want %s", rfc3339Nano, got.ISOFormat(), want)
 	}
 }
 
@@ -411,8 +478,13 @@ func fixtureLines(tb testing.TB, rel string) []string {
 }
 
 func FuzzParseISO(f *testing.F) {
-	for _, line := range fixtureLines(f, "docker/started_at.txt") {
-		f.Add(line)
+	// Both halves of the split fixture. The widened forms are the higher-entropy
+	// seeds of the two -- fractional digits, week dates, basic format -- so
+	// dropping them would cost the fuzzer most of what it had to mutate.
+	for _, rel := range []string{"docker/started_at.txt", "docker/started_at_py311.txt"} {
+		for _, line := range fixtureLines(f, rel) {
+			f.Add(line)
+		}
 	}
 	f.Fuzz(func(t *testing.T, s string) {
 		got, ok := ParseISO(s)
