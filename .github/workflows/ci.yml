@@ -128,6 +128,10 @@ jobs:
           # anyone. Every bound in it was measured off v1's own severity
           # functions, and an untested branch is a fleet that stays green.
           internal/threshold=95
+          # The contract all three front doors share. It is small, has no I/O, and
+          # every branch in it decides what a consumer is told -- a status that
+          # ranks wrong or a slice that marshals to null is a fleet-wide wire bug.
+          internal/check=95
           internal/cmdrun=95
           internal/hostfs=95
           internal/logging=95
