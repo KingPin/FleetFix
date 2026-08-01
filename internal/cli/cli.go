@@ -136,13 +136,33 @@ func (l *stringList) Set(v string) error {
 	return nil
 }
 
+// A rawList is a repeatable flag that keeps each value exactly as it was typed.
+//
+// Separate from stringList because a selector and a parameter are different
+// kinds of string. A selector is a name out of a fixed vocabulary, so splitting
+// `disk,network` into two of them is the only reading that makes sense. A
+// parameter is arbitrary operator text on the right of an `=`, where a comma is
+// a character rather than a separator -- `--param required_keys=A,B,C` is one
+// pair whose value happens to hold two commas, and a path may hold one too.
+// Splitting those produced fragments that failed the K=V test and a usage error
+// naming a key the operator never wrote.
+type rawList []string
+
+func (l *rawList) String() string { return strings.Join(*l, " ") }
+
+func (l *rawList) Set(v string) error {
+	*l = append(*l, v)
+	return nil
+}
+
 // runCheck parses `check`'s own flags and runs it.
 func runCheck(argv []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("fleetfix check", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() {}
 
-	var include, exclude, params stringList
+	var include, exclude stringList
+	var params rawList
 	var (
 		asJSON = fs.Bool("json", true, "Emit one indented JSON document on stdout.")
 		ndjson = fs.Bool("ndjson", false, "Emit the envelope, then one compact object per check.")
@@ -228,7 +248,9 @@ func runCheck(argv []string, stdout, stderr io.Writer) int {
 // operator who typed `--param path /var/log` meant to inspect something, and a
 // run that quietly skipped the check for want of a parameter it was given would
 // be the least helpful possible answer.
-func paramPairs(args stringList) (map[string]string, error) {
+// The value is taken whole, commas and all: only the first `=` separates, so a
+// URL, a comma-separated key list and a path with an `=` in it all survive.
+func paramPairs(args rawList) (map[string]string, error) {
 	out := map[string]string{}
 	for _, arg := range args {
 		key, value, ok := strings.Cut(arg, "=")

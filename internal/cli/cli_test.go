@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -451,6 +452,42 @@ func TestWellFormedParamsAreAccepted(t *testing.T) {
 		t.Errorf("`--param path=` was refused: %q", stderr)
 	}
 	decode(t, stdout)
+}
+
+// A parameter value is arbitrary operator text, so a comma in it is a character
+// rather than a separator. --check splits on commas because a selector is a name
+// out of a fixed vocabulary; --param must not, or every check documenting a
+// comma-separated argument -- storage.env's required_keys is the one this build
+// ships -- becomes unusable through the front door, and the operator gets a usage
+// error naming a key they never wrote.
+func TestAParamValueKeepsItsCommas(t *testing.T) {
+	got, err := paramPairs(rawList{"required_keys=API_TOKEN,SENTRY_DSN", "path=/srv/app,v2/.env"})
+	if err != nil {
+		t.Fatalf("paramPairs: %v", err)
+	}
+	want := map[string]string{
+		"required_keys": "API_TOKEN,SENTRY_DSN",
+		"path":          "/srv/app,v2/.env",
+	}
+	if !maps.Equal(got, want) {
+		t.Errorf("params = %v, want %v", got, want)
+	}
+
+	// And through the flag itself, which is where the splitting was.
+	if _, stderr, _ := run(t, "check", "--param", "required_keys=A,B,C"); strings.Contains(stderr, "K=V") {
+		t.Errorf("a comma-separated value was refused: %q", stderr)
+	}
+}
+
+// Only the first = separates, so a value may hold as many as it likes.
+func TestAParamValueKeepsItsEqualsSigns(t *testing.T) {
+	got, err := paramPairs(rawList{"query=a=1&b=2"})
+	if err != nil {
+		t.Fatalf("paramPairs: %v", err)
+	}
+	if got["query"] != "a=1&b=2" {
+		t.Errorf("query = %q, want %q", got["query"], "a=1&b=2")
+	}
 }
 
 // A repeatable flag that also splits on commas, because both spellings are how
