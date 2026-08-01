@@ -250,9 +250,13 @@ func TestValidateRejectsOnlyUnreachableLadders(t *testing.T) {
 	}
 }
 
+// bound is the pointer an operator's written bound arrives as. A literal cannot be
+// addressed inline, and spelling that out at every call site would bury the tables.
+func bound(v float64) *float64 { return &v }
+
 func TestMergeAppliesOverridesAndWarnsInsteadOfFailing(t *testing.T) {
-	set, warnings := Merge(map[string]Rule{
-		MemUsedPct: {Warn: 60, Crit: 75},
+	set, warnings := Merge(map[string]Override{
+		MemUsedPct: {Warn: bound(60), Crit: bound(75)},
 	})
 	got, _ := set.Get(MemUsedPct)
 	if got.Warn != 60 || got.Crit != 75 {
@@ -277,9 +281,9 @@ func TestMergeAppliesOverridesAndWarnsInsteadOfFailing(t *testing.T) {
 // layer, stated once here because thresholds are the part of it that decides
 // whether a host pages anyone.
 func TestMergeKeepsTheDefaultWhenAnOverrideIsUnusable(t *testing.T) {
-	set, warnings := Merge(map[string]Rule{
-		DiskUsedPct:    {Warn: 95, Crit: 80}, // inverted
-		"disk.usedpct": {Warn: 10, Crit: 20}, // a typo, not a rule
+	set, warnings := Merge(map[string]Override{
+		DiskUsedPct:    {Warn: bound(95), Crit: bound(80)}, // inverted
+		"disk.usedpct": {Warn: bound(10), Crit: bound(20)}, // a typo, not a rule
 	})
 
 	disk, _ := set.Get(DiskUsedPct)
@@ -353,7 +357,7 @@ func TestIDsAreSortedAndComplete(t *testing.T) {
 // Merge returns a fresh set each time, so an override in one process-wide caller
 // cannot reach into another's policy.
 func TestMergeDoesNotMutateTheDefaults(t *testing.T) {
-	if _, _ = Merge(map[string]Rule{MemUsedPct: {Warn: 1, Crit: 2}}); true {
+	if _, _ = Merge(map[string]Override{MemUsedPct: {Warn: bound(1), Crit: bound(2)}}); true {
 		if mem, _ := Defaults().Get(MemUsedPct); mem.Warn != 80 || mem.Crit != 95 {
 			t.Fatalf("Defaults() was mutated by a Merge: %+v", mem)
 		}

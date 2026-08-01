@@ -264,10 +264,11 @@ func (s Set) Grade(id string, v float64) Severity {
 // is reported rather than kept, since silently accepting it would let a typo look
 // like a configured policy that never fires.
 //
-// Overrides carry only bounds. ID, Unit and Description come from the default,
-// so an operator cannot rename a rule out from under the consumers that pin on it
-// or relabel a percentage as a temperature.
-func Merge(overrides map[string]Rule) (Set, []string) {
+// Overrides carry only bounds, and only the ones the operator wrote. ID, Unit and
+// Description come from the default, so an operator cannot rename a rule out from
+// under the consumers that pin on it or relabel a percentage as a temperature; a
+// bound they left out keeps its shipped value rather than becoming zero.
+func Merge(overrides map[string]Override) (Set, []string) {
 	set := Defaults()
 	var warnings []string
 
@@ -288,8 +289,12 @@ func Merge(overrides map[string]Rule) (Set, []string) {
 			continue
 		}
 		merged := base
-		merged.Warn = overrides[id].Warn
-		merged.Crit = overrides[id].Crit
+		if w := overrides[id].Warn; w != nil {
+			merged.Warn = *w
+		}
+		if c := overrides[id].Crit; c != nil {
+			merged.Crit = *c
+		}
 		if err := merged.Validate(); err != nil {
 			warnings = append(warnings, fmt.Sprintf(
 				"thresholds.yml: %v, keeping the default warn=%g crit=%g",
