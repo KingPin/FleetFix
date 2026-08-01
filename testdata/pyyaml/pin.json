@@ -1,0 +1,1843 @@
+{
+  "alias reused": [
+    "map",
+    {
+      "a": [
+        "map",
+        {
+          "k": [
+            "int",
+            "1"
+          ]
+        }
+      ],
+      "b": [
+        "map",
+        {
+          "k": [
+            "int",
+            "1"
+          ]
+        }
+      ],
+      "c": [
+        "map",
+        {
+          "k": [
+            "int",
+            "1"
+          ]
+        }
+      ]
+    }
+  ],
+  "alias to scalar reused": [
+    "map",
+    {
+      "a": [
+        "int",
+        "1"
+      ],
+      "b": [
+        "list",
+        [
+          [
+            "int",
+            "1"
+          ],
+          [
+            "int",
+            "1"
+          ],
+          [
+            "int",
+            "1"
+          ]
+        ]
+      ]
+    }
+  ],
+  "anchor and alias": [
+    "map",
+    {
+      "a": [
+        "int",
+        "1"
+      ],
+      "b": [
+        "int",
+        "1"
+      ]
+    }
+  ],
+  "bad indent": [
+    "map",
+    {}
+  ],
+  "bare number": [
+    "map",
+    {}
+  ],
+  "bare scalar": [
+    "map",
+    {}
+  ],
+  "big int": [
+    "map",
+    {
+      "a": [
+        "int",
+        "9223372036854775807"
+      ]
+    }
+  ],
+  "bigger than int64": [
+    "map",
+    {
+      "a": [
+        "int",
+        "9223372036854775808"
+      ]
+    }
+  ],
+  "binary tag": [
+    "map",
+    {
+      "a": [
+        "binary",
+        "hi"
+      ]
+    }
+  ],
+  "binary tag invalid": [
+    "map",
+    {
+      "a": [
+        "binary",
+        ""
+      ]
+    }
+  ],
+  "binary tag multiline": [
+    "map",
+    {
+      "a": [
+        "binary",
+        "hi"
+      ]
+    }
+  ],
+  "blank": [
+    "map",
+    {}
+  ],
+  "bom": [
+    "map",
+    {
+      "a": [
+        "int",
+        "1"
+      ]
+    }
+  ],
+  "bool TRUE": [
+    "map",
+    {
+      "a": [
+        "bool",
+        "true"
+      ]
+    }
+  ],
+  "bool True": [
+    "map",
+    {
+      "a": [
+        "bool",
+        "true"
+      ]
+    }
+  ],
+  "bool YES": [
+    "map",
+    {
+      "a": [
+        "bool",
+        "true"
+      ]
+    }
+  ],
+  "bool Yes": [
+    "map",
+    {
+      "a": [
+        "bool",
+        "true"
+      ]
+    }
+  ],
+  "bool false": [
+    "map",
+    {
+      "a": [
+        "bool",
+        "false"
+      ]
+    }
+  ],
+  "bool n": [
+    "map",
+    {
+      "a": [
+        "str",
+        "n"
+      ]
+    }
+  ],
+  "bool no": [
+    "map",
+    {
+      "a": [
+        "bool",
+        "false"
+      ]
+    }
+  ],
+  "bool off": [
+    "map",
+    {
+      "a": [
+        "bool",
+        "false"
+      ]
+    }
+  ],
+  "bool on": [
+    "map",
+    {
+      "a": [
+        "bool",
+        "true"
+      ]
+    }
+  ],
+  "bool quoted": [
+    "map",
+    {
+      "a": [
+        "str",
+        "true"
+      ]
+    }
+  ],
+  "bool true": [
+    "map",
+    {
+      "a": [
+        "bool",
+        "true"
+      ]
+    }
+  ],
+  "bool y": [
+    "map",
+    {
+      "a": [
+        "str",
+        "y"
+      ]
+    }
+  ],
+  "bool yes": [
+    "map",
+    {
+      "a": [
+        "bool",
+        "true"
+      ]
+    }
+  ],
+  "clock": [
+    "map",
+    {
+      "a": [
+        "str",
+        "03:04:05"
+      ]
+    }
+  ],
+  "colliding keys": [
+    "map",
+    {
+      "1": [
+        "str",
+        "b"
+      ]
+    }
+  ],
+  "colon in value": [
+    "map",
+    {
+      "a": [
+        "str",
+        "b:c"
+      ]
+    }
+  ],
+  "comment only": [
+    "map",
+    {}
+  ],
+  "cr only": [
+    "map",
+    {
+      "a": [
+        "int",
+        "1"
+      ],
+      "b": [
+        "int",
+        "2"
+      ]
+    }
+  ],
+  "crlf": [
+    "map",
+    {
+      "a": [
+        "int",
+        "1"
+      ],
+      "b": [
+        "int",
+        "2"
+      ]
+    }
+  ],
+  "date": [
+    "map",
+    {
+      "a": [
+        "date",
+        "2024-01-02"
+      ]
+    }
+  ],
+  "document end": [
+    "map",
+    {
+      "a": [
+        "int",
+        "1"
+      ]
+    }
+  ],
+  "document start only": [
+    "map",
+    {
+      "a": [
+        "int",
+        "1"
+      ]
+    }
+  ],
+  "duplicate keys": [
+    "map",
+    {
+      "a": [
+        "int",
+        "2"
+      ]
+    }
+  ],
+  "duplicate nested keys": [
+    "map",
+    {
+      "outer": [
+        "map",
+        {
+          "a": [
+            "int",
+            "2"
+          ]
+        }
+      ]
+    }
+  ],
+  "empty": [
+    "map",
+    {}
+  ],
+  "empty flow list": [
+    "map",
+    {}
+  ],
+  "empty flow mapping": [
+    "map",
+    {}
+  ],
+  "empty key": [
+    "map",
+    {}
+  ],
+  "empty mapping value": [
+    "map",
+    {
+      "a": [
+        "null",
+        ""
+      ]
+    }
+  ],
+  "empty string quoted": [
+    "map",
+    {
+      "a": [
+        "str",
+        ""
+      ]
+    }
+  ],
+  "expanding aliases": [
+    "map",
+    {
+      "a": [
+        "list",
+        [
+          [
+            "str",
+            "x"
+          ],
+          [
+            "str",
+            "x"
+          ]
+        ]
+      ],
+      "b": [
+        "list",
+        [
+          [
+            "list",
+            [
+              [
+                "str",
+                "x"
+              ],
+              [
+                "str",
+                "x"
+              ]
+            ]
+          ],
+          [
+            "list",
+            [
+              [
+                "str",
+                "x"
+              ],
+              [
+                "str",
+                "x"
+              ]
+            ]
+          ]
+        ]
+      ],
+      "c": [
+        "list",
+        [
+          [
+            "list",
+            [
+              [
+                "list",
+                [
+                  [
+                    "str",
+                    "x"
+                  ],
+                  [
+                    "str",
+                    "x"
+                  ]
+                ]
+              ],
+              [
+                "list",
+                [
+                  [
+                    "str",
+                    "x"
+                  ],
+                  [
+                    "str",
+                    "x"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            "list",
+            [
+              [
+                "list",
+                [
+                  [
+                    "str",
+                    "x"
+                  ],
+                  [
+                    "str",
+                    "x"
+                  ]
+                ]
+              ],
+              [
+                "list",
+                [
+                  [
+                    "str",
+                    "x"
+                  ],
+                  [
+                    "str",
+                    "x"
+                  ]
+                ]
+              ]
+            ]
+          ]
+        ]
+      ],
+      "d": [
+        "list",
+        [
+          [
+            "list",
+            [
+              [
+                "list",
+                [
+                  [
+                    "list",
+                    [
+                      [
+                        "str",
+                        "x"
+                      ],
+                      [
+                        "str",
+                        "x"
+                      ]
+                    ]
+                  ],
+                  [
+                    "list",
+                    [
+                      [
+                        "str",
+                        "x"
+                      ],
+                      [
+                        "str",
+                        "x"
+                      ]
+                    ]
+                  ]
+                ]
+              ],
+              [
+                "list",
+                [
+                  [
+                    "list",
+                    [
+                      [
+                        "str",
+                        "x"
+                      ],
+                      [
+                        "str",
+                        "x"
+                      ]
+                    ]
+                  ],
+                  [
+                    "list",
+                    [
+                      [
+                        "str",
+                        "x"
+                      ],
+                      [
+                        "str",
+                        "x"
+                      ]
+                    ]
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            "list",
+            [
+              [
+                "list",
+                [
+                  [
+                    "list",
+                    [
+                      [
+                        "str",
+                        "x"
+                      ],
+                      [
+                        "str",
+                        "x"
+                      ]
+                    ]
+                  ],
+                  [
+                    "list",
+                    [
+                      [
+                        "str",
+                        "x"
+                      ],
+                      [
+                        "str",
+                        "x"
+                      ]
+                    ]
+                  ]
+                ]
+              ],
+              [
+                "list",
+                [
+                  [
+                    "list",
+                    [
+                      [
+                        "str",
+                        "x"
+                      ],
+                      [
+                        "str",
+                        "x"
+                      ]
+                    ]
+                  ],
+                  [
+                    "list",
+                    [
+                      [
+                        "str",
+                        "x"
+                      ],
+                      [
+                        "str",
+                        "x"
+                      ]
+                    ]
+                  ]
+                ]
+              ]
+            ]
+          ]
+        ]
+      ]
+    }
+  ],
+  "explicit bool tag": [
+    "map",
+    {
+      "a": [
+        "bool",
+        "true"
+      ]
+    }
+  ],
+  "explicit bool tag y": [
+    "raises:KeyError",
+    "'y'"
+  ],
+  "explicit float tag exponent": [
+    "map",
+    {
+      "a": [
+        "float",
+        "1000.0"
+      ]
+    }
+  ],
+  "explicit float tag word": [
+    "raises:ValueError",
+    "could not convert string to float: 'banana'"
+  ],
+  "explicit int tag": [
+    "map",
+    {
+      "a": [
+        "int",
+        "5"
+      ]
+    }
+  ],
+  "explicit int tag octal": [
+    "map",
+    {
+      "a": [
+        "int",
+        "15"
+      ]
+    }
+  ],
+  "explicit int tag sexagesimal": [
+    "map",
+    {
+      "a": [
+        "int",
+        "90"
+      ]
+    }
+  ],
+  "explicit key form": [
+    "map",
+    {
+      "a": [
+        "int",
+        "1"
+      ]
+    }
+  ],
+  "explicit map tag": [
+    "map",
+    {
+      "a": [
+        "map",
+        {
+          "x": [
+            "int",
+            "1"
+          ]
+        }
+      ]
+    }
+  ],
+  "explicit null tag": [
+    "map",
+    {
+      "a": [
+        "null",
+        ""
+      ]
+    }
+  ],
+  "explicit seq tag": [
+    "map",
+    {
+      "a": [
+        "list",
+        [
+          [
+            "int",
+            "1"
+          ],
+          [
+            "int",
+            "2"
+          ]
+        ]
+      ]
+    }
+  ],
+  "explicit str tag": [
+    "map",
+    {
+      "a": [
+        "str",
+        "5"
+      ]
+    }
+  ],
+  "explicit timestamp tag": [
+    "map",
+    {
+      "a": [
+        "date",
+        "2024-01-02"
+      ]
+    }
+  ],
+  "fixture/otel_full": [
+    "map",
+    {
+      "endpoint": [
+        "str",
+        "https://ingest.example.com:443"
+      ],
+      "headers": [
+        "map",
+        {
+          "x-otlp-token": [
+            "str",
+            "abc"
+          ]
+        }
+      ],
+      "insecure": [
+        "bool",
+        "false"
+      ],
+      "service_name": [
+        "str",
+        "fleetfix-test"
+      ]
+    }
+  ],
+  "fixture/otel_headers": [
+    "map",
+    {
+      "endpoint": [
+        "str",
+        "https://ingest.example.com:443"
+      ],
+      "headers": [
+        "map",
+        {
+          "a": [
+            "str",
+            "1"
+          ]
+        }
+      ]
+    }
+  ],
+  "fixture/paths_target_user": [
+    "map",
+    {
+      "stale_age_days": [
+        "int",
+        "30"
+      ],
+      "target_user": [
+        "str",
+        "appuser"
+      ]
+    }
+  ],
+  "fixture/perf_true": [
+    "map",
+    {
+      "reduce_animations": [
+        "bool",
+        "true"
+      ]
+    }
+  ],
+  "fixture/probes_broken_mapping": [
+    "map",
+    {}
+  ],
+  "fixture/probes_full": [
+    "map",
+    {
+      "dns": [
+        "map",
+        {
+          "names": [
+            "list",
+            [
+              [
+                "str",
+                "db.corp.internal"
+              ],
+              [
+                "str",
+                "github.com"
+              ]
+            ]
+          ]
+        }
+      ],
+      "http": [
+        "map",
+        {
+          "urls": [
+            "list",
+            [
+              [
+                "str",
+                "https://api.corp.internal/health"
+              ]
+            ]
+          ]
+        }
+      ],
+      "ladder": [
+        "map",
+        {
+          "dns_name": [
+            "str",
+            "db.corp.internal"
+          ],
+          "https_url": [
+            "str",
+            "https://api.corp.internal/health"
+          ],
+          "internet_target": [
+            "str",
+            "9.9.9.9"
+          ]
+        }
+      ],
+      "ping": [
+        "map",
+        {
+          "count": [
+            "int",
+            "5"
+          ],
+          "interval_s": [
+            "float",
+            "0.3"
+          ],
+          "targets": [
+            "list",
+            [
+              [
+                "str",
+                "10.0.0.1"
+              ],
+              [
+                "str",
+                "8.8.8.8"
+              ]
+            ]
+          ]
+        }
+      ],
+      "tcp": [
+        "map",
+        {
+          "targets": [
+            "list",
+            [
+              [
+                "str",
+                "db.corp.internal:5432"
+              ],
+              [
+                "str",
+                "https://api.corp.internal"
+              ]
+            ]
+          ]
+        }
+      ],
+      "traceroute": [
+        "map",
+        {
+          "max_hops": [
+            "int",
+            "20"
+          ]
+        }
+      ]
+    }
+  ],
+  "fixture/probes_malformed": [
+    "map",
+    {}
+  ],
+  "fixture/top_level_list": [
+    "map",
+    {}
+  ],
+  "float": [
+    "map",
+    {
+      "a": [
+        "float",
+        "0.3"
+      ]
+    }
+  ],
+  "float exponent": [
+    "map",
+    {
+      "a": [
+        "str",
+        "1e3"
+      ]
+    }
+  ],
+  "float exponent dotted": [
+    "map",
+    {
+      "a": [
+        "str",
+        "1.0e3"
+      ]
+    }
+  ],
+  "float leading dot": [
+    "map",
+    {
+      "a": [
+        "float",
+        "0.5"
+      ]
+    }
+  ],
+  "float overflow": [
+    "map",
+    {
+      "a": [
+        "float",
+        "inf"
+      ]
+    }
+  ],
+  "float overflow negative": [
+    "map",
+    {
+      "a": [
+        "float",
+        "-inf"
+      ]
+    }
+  ],
+  "float underflow": [
+    "map",
+    {
+      "a": [
+        "float",
+        "0.0"
+      ]
+    }
+  ],
+  "float underflow negative": [
+    "map",
+    {
+      "a": [
+        "float",
+        "-0.0"
+      ]
+    }
+  ],
+  "flow list value": [
+    "map",
+    {
+      "a": [
+        "list",
+        []
+      ]
+    }
+  ],
+  "flow mapping value": [
+    "map",
+    {
+      "a": [
+        "map",
+        {}
+      ]
+    }
+  ],
+  "folded scalar": [
+    "map",
+    {
+      "a": [
+        "str",
+        "one two\n"
+      ]
+    }
+  ],
+  "hash not a comment": [
+    "map",
+    {
+      "a": [
+        "str",
+        "b#c"
+      ]
+    }
+  ],
+  "hex": [
+    "map",
+    {
+      "a": [
+        "int",
+        "31"
+      ]
+    }
+  ],
+  "inf": [
+    "map",
+    {
+      "a": [
+        "float",
+        "inf"
+      ]
+    }
+  ],
+  "inf caps": [
+    "map",
+    {
+      "a": [
+        "float",
+        "inf"
+      ]
+    }
+  ],
+  "inf key": [
+    "map",
+    {
+      "Infinity": [
+        "int",
+        "1"
+      ]
+    }
+  ],
+  "int": [
+    "map",
+    {
+      "a": [
+        "int",
+        "5"
+      ]
+    }
+  ],
+  "int minus": [
+    "map",
+    {
+      "a": [
+        "int",
+        "-5"
+      ]
+    }
+  ],
+  "int plus": [
+    "map",
+    {
+      "a": [
+        "int",
+        "5"
+      ]
+    }
+  ],
+  "key with space": [
+    "map",
+    {
+      "a b": [
+        "int",
+        "1"
+      ]
+    }
+  ],
+  "leading zero": [
+    "map",
+    {
+      "a": [
+        "int",
+        "511"
+      ]
+    }
+  ],
+  "leading zero eight": [
+    "map",
+    {
+      "a": [
+        "str",
+        "08"
+      ]
+    }
+  ],
+  "list of mappings": [
+    "map",
+    {
+      "a": [
+        "list",
+        [
+          [
+            "map",
+            {
+              "b": [
+                "int",
+                "1"
+              ]
+            }
+          ],
+          [
+            "map",
+            {
+              "c": [
+                "int",
+                "2"
+              ]
+            }
+          ]
+        ]
+      ]
+    }
+  ],
+  "merge as a value": [
+    "map",
+    {}
+  ],
+  "merge key": [
+    "map",
+    {
+      "base": [
+        "map",
+        {
+          "x": [
+            "int",
+            "1"
+          ]
+        }
+      ],
+      "child": [
+        "map",
+        {
+          "x": [
+            "int",
+            "1"
+          ],
+          "y": [
+            "int",
+            "2"
+          ]
+        }
+      ]
+    }
+  ],
+  "merge list of mappings": [
+    "map",
+    {
+      "c": [
+        "map",
+        {
+          "x": [
+            "int",
+            "1"
+          ],
+          "y": [
+            "int",
+            "2"
+          ],
+          "z": [
+            "int",
+            "3"
+          ]
+        }
+      ],
+      "l": [
+        "map",
+        {
+          "x": [
+            "int",
+            "1"
+          ]
+        }
+      ],
+      "r": [
+        "map",
+        {
+          "y": [
+            "int",
+            "2"
+          ]
+        }
+      ]
+    }
+  ],
+  "merge of a scalar": [
+    "map",
+    {}
+  ],
+  "merge overridden": [
+    "map",
+    {
+      "b": [
+        "map",
+        {
+          "x": [
+            "int",
+            "1"
+          ]
+        }
+      ],
+      "c": [
+        "map",
+        {
+          "x": [
+            "int",
+            "2"
+          ]
+        }
+      ]
+    }
+  ],
+  "much bigger than int64": [
+    "map",
+    {
+      "a": [
+        "int",
+        "123456789012345678901234567890"
+      ]
+    }
+  ],
+  "multiline scalar": [
+    "map",
+    {
+      "a": [
+        "str",
+        "one\ntwo\n"
+      ]
+    }
+  ],
+  "nan": [
+    "map",
+    {
+      "a": [
+        "float",
+        "nan"
+      ]
+    }
+  ],
+  "nbsp value": [
+    "map",
+    {
+      "a": [
+        "str",
+        "x\u00a0y"
+      ]
+    }
+  ],
+  "neg inf": [
+    "map",
+    {
+      "a": [
+        "float",
+        "-inf"
+      ]
+    }
+  ],
+  "negative past int64": [
+    "map",
+    {
+      "a": [
+        "int",
+        "-9223372036854775809"
+      ]
+    }
+  ],
+  "nel line break": [
+    "map",
+    {
+      "a": [
+        "int",
+        "1"
+      ],
+      "b": [
+        "int",
+        "2"
+      ]
+    }
+  ],
+  "nested mapping": [
+    "map",
+    {
+      "a": [
+        "map",
+        {
+          "b": [
+            "map",
+            {
+              "c": [
+                "int",
+                "1"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "non-string key bool": [
+    "map",
+    {
+      "true": [
+        "str",
+        "a"
+      ]
+    }
+  ],
+  "non-string key float": [
+    "map",
+    {
+      "1.5": [
+        "str",
+        "a"
+      ]
+    }
+  ],
+  "non-string key int": [
+    "map",
+    {
+      "1": [
+        "str",
+        "a"
+      ]
+    }
+  ],
+  "non-string key list": [
+    "map",
+    {}
+  ],
+  "non-string key null": [
+    "map",
+    {
+      "null": [
+        "str",
+        "a"
+      ]
+    }
+  ],
+  "null document": [
+    "map",
+    {}
+  ],
+  "null word": [
+    "map",
+    {}
+  ],
+  "octal yaml11": [
+    "map",
+    {
+      "a": [
+        "int",
+        "15"
+      ]
+    }
+  ],
+  "octal yaml12": [
+    "map",
+    {
+      "a": [
+        "str",
+        "0o17"
+      ]
+    }
+  ],
+  "omap not a sequence": [
+    "map",
+    {}
+  ],
+  "omap tag": [
+    "map",
+    {
+      "a": [
+        "list",
+        [
+          [
+            "list",
+            [
+              [
+                "str",
+                "x"
+              ],
+              [
+                "int",
+                "1"
+              ]
+            ]
+          ],
+          [
+            "list",
+            [
+              [
+                "str",
+                "y"
+              ],
+              [
+                "int",
+                "2"
+              ]
+            ]
+          ]
+        ]
+      ]
+    }
+  ],
+  "pairs tag": [
+    "map",
+    {
+      "a": [
+        "list",
+        [
+          [
+            "list",
+            [
+              [
+                "str",
+                "x"
+              ],
+              [
+                "int",
+                "1"
+              ]
+            ]
+          ],
+          [
+            "list",
+            [
+              [
+                "str",
+                "x"
+              ],
+              [
+                "int",
+                "2"
+              ]
+            ]
+          ]
+        ]
+      ]
+    }
+  ],
+  "python tag": [
+    "map",
+    {}
+  ],
+  "quoted numeric key": [
+    "map",
+    {
+      "1": [
+        "str",
+        "a"
+      ]
+    }
+  ],
+  "recursive anchor": [
+    "raises:RecursionError",
+    "maximum recursion depth exceeded"
+  ],
+  "recursive anchor mapping": [
+    "raises:RecursionError",
+    "maximum recursion depth exceeded"
+  ],
+  "recursive merge": [
+    "map",
+    {
+      "a": [
+        "map",
+        {
+          "y": [
+            "int",
+            "1"
+          ]
+        }
+      ]
+    }
+  ],
+  "set tag": [
+    "map",
+    {
+      "a": [
+        "set",
+        [
+          [
+            "str",
+            "x"
+          ],
+          [
+            "str",
+            "y"
+          ]
+        ]
+      ]
+    }
+  ],
+  "set tag int members": [
+    "map",
+    {
+      "a": [
+        "set",
+        [
+          [
+            "int",
+            "1"
+          ],
+          [
+            "int",
+            "2"
+          ]
+        ]
+      ]
+    }
+  ],
+  "set tag with values": [
+    "map",
+    {
+      "a": [
+        "set",
+        [
+          [
+            "str",
+            "x"
+          ]
+        ]
+      ]
+    }
+  ],
+  "sexagesimal": [
+    "map",
+    {
+      "a": [
+        "int",
+        "90"
+      ]
+    }
+  ],
+  "sexagesimal float": [
+    "map",
+    {
+      "a": [
+        "float",
+        "90.5"
+      ]
+    }
+  ],
+  "tab indent": [
+    "map",
+    {}
+  ],
+  "tilde key": [
+    "map",
+    {
+      "null": [
+        "str",
+        "a"
+      ]
+    }
+  ],
+  "timestamp": [
+    "map",
+    {
+      "a": [
+        "datetime",
+        "2024-01-02T03:04:05+00:00"
+      ]
+    }
+  ],
+  "timestamp fraction": [
+    "map",
+    {
+      "a": [
+        "datetime",
+        "2024-01-02T03:04:05.123456+00:00"
+      ]
+    }
+  ],
+  "timestamp impossible": [
+    "raises:ValueError",
+    "month must be in 1..12, not 13"
+  ],
+  "timestamp offset": [
+    "map",
+    {
+      "a": [
+        "datetime",
+        "2024-01-02T03:04:05+05:30"
+      ]
+    }
+  ],
+  "timestamp spaced": [
+    "map",
+    {
+      "a": [
+        "datetime",
+        "2024-01-02T03:04:05"
+      ]
+    }
+  ],
+  "top level set": [
+    "map",
+    {}
+  ],
+  "trailing comment": [
+    "map",
+    {
+      "a": [
+        "int",
+        "1"
+      ]
+    }
+  ],
+  "two documents": [
+    "map",
+    {}
+  ],
+  "unclosed quote": [
+    "map",
+    {}
+  ],
+  "undefined alias": [
+    "map",
+    {}
+  ],
+  "underscored int": [
+    "map",
+    {
+      "a": [
+        "int",
+        "1000"
+      ]
+    }
+  ],
+  "unknown tag": [
+    "map",
+    {}
+  ],
+  "utf8 value": [
+    "map",
+    {
+      "a": [
+        "str",
+        "caf\u00e9"
+      ]
+    }
+  ],
+  "value key": [
+    "map",
+    {
+      "=": [
+        "int",
+        "1"
+      ]
+    }
+  ],
+  "very deep": [
+    "map",
+    {
+      "a": [
+        "map",
+        {
+          "k1": [
+            "map",
+            {
+              "k2": [
+                "map",
+                {
+                  "k3": [
+                    "map",
+                    {
+                      "k4": [
+                        "map",
+                        {
+                          "k5": [
+                            "map",
+                            {
+                              "k6": [
+                                "map",
+                                {
+                                  "k7": [
+                                    "map",
+                                    {
+                                      "k8": [
+                                        "map",
+                                        {
+                                          "k9": [
+                                            "map",
+                                            {
+                                              "k10": [
+                                                "map",
+                                                {
+                                                  "k11": [
+                                                    "map",
+                                                    {
+                                                      "k12": [
+                                                        "map",
+                                                        {
+                                                          "k13": [
+                                                            "map",
+                                                            {
+                                                              "k14": [
+                                                                "map",
+                                                                {
+                                                                  "k15": [
+                                                                    "map",
+                                                                    {
+                                                                      "k16": [
+                                                                        "map",
+                                                                        {
+                                                                          "k17": [
+                                                                            "map",
+                                                                            {
+                                                                              "k18": [
+                                                                                "map",
+                                                                                {
+                                                                                  "k19": [
+                                                                                    "null",
+                                                                                    ""
+                                                                                  ]
+                                                                                }
+                                                                              ]
+                                                                            }
+                                                                          ]
+                                                                        }
+                                                                      ]
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              ]
+                                                            }
+                                                          ]
+                                                        }
+                                                      ]
+                                                    }
+                                                  ]
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ],
+                  "z": [
+                    "int",
+                    "1"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "yes key": [
+    "map",
+    {
+      "true": [
+        "int",
+        "1"
+      ]
+    }
+  ]
+}

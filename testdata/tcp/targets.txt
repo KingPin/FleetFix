@@ -1,0 +1,14 @@
+example.com:443
+[::1]:5432
+https://example.com
+http://example.com/health
+ssh://bastion.example.net
+postgres://db.internal
+redis://cache01:6380
+mysql://db01
+HTTPS://Example.COM/path
+https://[fe80::1]:8443/metrics
+://plain.example.com:9000
+user@jump.example.com:22
+  spaced.example.com: 8080
+10.0.0.5:65535

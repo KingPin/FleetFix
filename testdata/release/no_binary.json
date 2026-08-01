@@ -1,0 +1,11 @@
+{
+  "tag_name": "v2.0.0",
+  "html_url": "https://example.invalid/r/v2.0.0",
+  "body": "notes",
+  "assets": [
+    {
+      "name": "fleetfix-linux-x86_64.sha256",
+      "browser_download_url": "https://github.com/KingPin/FleetFix/releases/download/v2.0.0/fleetfix-linux-x86_64.sha256"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+# Values of the wrong type in every slot. The quoted "5" is the interesting one: it
+# reads like a number and is not one, so the knob falls back to 10 rather than being
+# helpfully coerced. true is refused too, because `count: true` is a typo and not 1.
+ping:
+  count: "5"
+  interval_s: true
+  timeout_s: null
+  targets: 8.8.8.8
+dns:
+  names: github.com
+  timeout_s: {}
+http:
+  urls: 1
+  max_redirects: []
+tcp:
+  targets: db:5432
+  timeout_s: "3.0"
+traceroute:
+  max_hops: false
+ladder:
+  internet_target: 9
+  dns_name: ""
+  https_url: "   "

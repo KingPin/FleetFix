@@ -55,6 +55,44 @@ func TestReadTrimmed(t *testing.T) {
 	}
 }
 
+// ReadTrimmed must strip what Python's str.strip() strips, not what
+// strings.TrimSpace does. Every expected value here was measured against CPython;
+// U+001C..U+001F are the whole delta, and they are the reason this is not TrimSpace.
+func TestReadTrimmedStripsPythonsWhitespace(t *testing.T) {
+	tests := []struct {
+		name string
+		data string
+		want string
+	}{
+		{"trailing newline", "up\n", "up"},
+		{"surrounding spaces", "  up  \n", "up"},
+		{"file separators", "\x1cup\x1f", "up"},
+		// Spelled as code points, not bytes: these are two-byte UTF-8 sequences in
+		// the file, and a lone 0x85 byte would be invalid UTF-8 rather than U+0085.
+		{"next line and nbsp", "\u0085up\u00a0", "up"},
+		{"vertical tab and form feed", "\x0bup\x0c", "up"},
+		{"nothing but separators", "\x1c\x1d\x1e\x1f", ""},
+		{"empty", "", ""},
+		{"only newlines", "\n\n", ""},
+		// NUL is not whitespace to Python, and an operstate that came back with one
+		// is a value worth seeing rather than one to quietly clean up.
+		{"nul is not whitespace", "up\x00", "up\x00"},
+		{"interior space is left alone", "a b\n", "a b"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fsys := fstest.MapFS{"operstate": {Data: []byte(tt.data)}}
+			got, err := ReadTrimmed(fsys, "operstate")
+			if err != nil {
+				t.Fatalf("ReadTrimmed errored: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("ReadTrimmed(%q) = %q, want %q", tt.data, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestReadInt(t *testing.T) {
 	h := fakeHost()
 	got, err := ReadInt(h.Sys, "class/thermal/thermal_zone0/temp")

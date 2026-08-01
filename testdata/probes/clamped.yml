@@ -1,0 +1,18 @@
+# Every numeric knob out of range, in both directions. These are the numbers that
+# become subprocess arguments, so the clamp is the only thing between a typo and a
+# self-inflicted flood: count 100000 at interval 0 is roughly a ping -f.
+ping:
+  count: 100000
+  interval_s: 0
+  timeout_s: 0
+dns:
+  timeout_s: 99
+http:
+  timeout_s: 500
+  max_redirects: -3
+tcp:
+  timeout_s: 0.001
+traceroute:
+  max_hops: 64
+  wait_s: 0
+  queries: 9

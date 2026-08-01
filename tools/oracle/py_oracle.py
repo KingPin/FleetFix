@@ -41,6 +41,7 @@ import argparse
 import dataclasses
 import enum
 import json
+import math
 import sys
 import tempfile
 from collections.abc import Callable
@@ -58,13 +59,22 @@ from fleetfix.modules.disk import ghost, inodes, smart, usage  # noqa: E402
 from fleetfix.modules.docker import dashboard as docker_dashboard  # noqa: E402
 from fleetfix.modules.docker import hygiene as docker_hygiene  # noqa: E402
 from fleetfix.modules.log_squeeze import gzip_inplace  # noqa: E402
-from fleetfix.modules.network import curl_probe, interfaces, ping, resolver, sockets  # noqa: E402
+from fleetfix.modules.network import (  # noqa: E402
+    curl_probe,
+    interfaces,
+    ping,
+    probes,
+    resolver,
+    sockets,
+    tcp,
+)
 from fleetfix.modules.network import traceroute as tr  # noqa: E402
+from fleetfix.modules.procs import ranker  # noqa: E402
 from fleetfix.modules.services import boot as services_boot  # noqa: E402
 from fleetfix.modules.services import failed as services_failed  # noqa: E402
-from fleetfix.modules.storage import env_check  # noqa: E402
-from fleetfix.modules.system import metrics, updates  # noqa: E402
-from fleetfix.updater import installer  # noqa: E402
+from fleetfix.modules.storage import env_check, stale  # noqa: E402
+from fleetfix.modules.system import metrics, thermal, updates  # noqa: E402
+from fleetfix.updater import checker, installer  # noqa: E402
 
 MANIFEST = REPO_ROOT / "testdata" / "cases.jsonl"
 TESTDATA = REPO_ROOT / "testdata"
@@ -75,6 +85,42 @@ TESTDATA = REPO_ROOT / "testdata"
 # input="text" cases and a Path to a temp copy of it for input="path".
 Adapter = Callable[[Any, dict[str, Any]], Any]
 
+
+def materialise_tree(node: dict[str, Any], at: Path) -> None:
+    """Write a JSON directory description out as a real tree.
+
+    The fixture kind the readers that walk a directory need -- /sys/class/thermal,
+    /sys/class/net, /proc/<pid> -- where a string is a file's contents and a nested
+    object is a directory. One checked-in JSON file is a whole captured tree, so it
+    keeps a checksum in the manifest like every other fixture.
+
+    An empty object is an empty directory, which is a real sysfs shape: a driver
+    that registered and then failed leaves one behind, and the reader must skip it
+    for that reason rather than because it was not there at all.
+    """
+    at.mkdir(parents=True, exist_ok=True)
+    for name, child in node.items():
+        target = at / name
+        if isinstance(child, str):
+            target.write_text(child, encoding="utf-8")
+        elif isinstance(child, dict):
+            materialise_tree(child, target)
+        else:
+            raise TypeError(f"{target}: want a string (a file) or an object (a directory)")
+
+
+def globs_arg(args: dict[str, Any], key: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    """Read an optional glob-list argument, falling back to a shipped constant.
+
+    Absent and ``null`` both mean the default -- matching ``optStrListArg`` on the Go
+    side -- but an explicitly empty list does not. A case that empties a glob list is
+    asking what happens when nothing is configured, and quietly answering with the
+    defaults would make that case compare something else entirely.
+    """
+    v = args.get(key)
+    return default if v is None else tuple(v)
+
+
 DISPATCH: dict[str, Adapter] = {
     # system
     "system.parse_apt_upgradable": lambda t, a: updates.parse_apt_upgradable(t),
@@ -82,6 +128,11 @@ DISPATCH: dict[str, Adapter] = {
     "system.read_uptime": lambda p, a: metrics.read_uptime(p),
     "system.read_loadavg": lambda p, a: metrics.read_loadavg(p),
     "system.read_meminfo": lambda p, a: metrics.read_meminfo(p),
+    "system.read_zones": lambda p, a: thermal.read_zones(p),
+    # Called through read_zones rather than over a hand-built list: the tie rule --
+    # max() keeps its incumbent, so the lexicographically first of two equally warm
+    # zones wins -- is only observable against the order read_zones produced.
+    "system.hottest": lambda p, a: thermal.hottest(thermal.read_zones(p)),
     # disk
     "disk.parse_df": lambda t, a: usage.parse_df(t),
     "disk.parse_df_inodes": lambda t, a: inodes.parse_df_inodes(t),
@@ -98,14 +149,47 @@ DISPATCH: dict[str, Adapter] = {
     "net.parse_tracepath_output": lambda t, a: tr.parse_tracepath_output(
         a["target"], t, max_hops=a["max_hops"]
     ),
+    # One target per line: parse_host_port takes a single string, so the adapter
+    # maps over the fixture's lines and the result is a list, with None wherever a
+    # line named no reachable target.
+    "net.parse_host_port": lambda t, a: [
+        tcp.parse_host_port(line, default_port=a["default_port"]) for line in t.splitlines() if line
+    ],
     "net.parse_resolv_conf": lambda t, a: resolver.parse_resolv_conf(t),
     "net.parse_ss_output": lambda t, a: sockets.parse_ss_output(t),
     "net.read_counters": lambda p, a: interfaces.read_counters(p),
     "net.default_route": lambda p, a: interfaces.default_route(p),
+    "net.operstate": lambda p, a: interfaces.operstate(a["iface"], root=p),
+    # Only the resolved Probes is compared. The clamp/reject warnings go to the
+    # logger rather than the return value, so there is nothing here for the harness
+    # to compare them against; the Go side pins them in a unit test instead.
+    "net.load_probes": lambda p, a: probes.load_probes(path=p),
     # docker
     "docker.parse_reclaimed_total": lambda t, a: docker_hygiene.parse_reclaimed_total(t),
     "docker.parse_ps_json_lines": lambda t, a: docker_dashboard.parse_ps_json_lines(t),
+    "docker.parse_inspect_fields": lambda t, a: docker_dashboard.parse_inspect_fields(t),
+    # A line per case, as procs.parse_stat_comm_and_ticks does it: _parse_iso takes
+    # a single string, so a fixture holding one form per line reads as the behaviour
+    # table it is. Private in v1 -- its only caller is a few lines further down the
+    # same module -- and the harness compares behaviour, not visibility. plain()
+    # reduces each datetime with isoformat(), so the wire form is the string the Go
+    # side's ISOFormat has to reproduce character for character.
+    "docker.parse_iso": lambda t, a: [
+        docker_dashboard._parse_iso(line) for line in t.splitlines() if line
+    ],
     "docker.parse_system_df_json_lines": lambda t, a: docker_hygiene.parse_system_df_json_lines(t),
+    # procs
+    #
+    # A line per case, the way net.parse_host_port does it: one /proc/<pid>/stat is
+    # a single line, so a fixture holding one per shape reads as the behaviour
+    # table it is. Private in v1 -- nothing public reaches them without walking
+    # /proc -- and the harness compares behaviour, not visibility.
+    "procs.parse_stat_comm_and_ticks": lambda t, a: [
+        ranker._parse_stat_comm_and_ticks(line) for line in t.splitlines() if line
+    ],
+    "procs.parse_statm_rss_pages": lambda t, a: [
+        ranker._parse_statm_rss_pages(line) for line in t.splitlines() if line
+    ],
     # services
     "services.parse_failed_units": lambda t, a: services_failed.parse_failed_units(t),
     "services.parse_show_user": lambda t, a: services_failed.parse_show_user(t),
@@ -114,6 +198,18 @@ DISPATCH: dict[str, Adapter] = {
     "storage.check_env_file": lambda p, a: env_check.check_env_file(
         p, required_keys=a.get("required_keys")
     ),
+    # A filename per line, the way net.parse_host_port does it. Absent glob
+    # arguments mean the shipped constants, so a case with no arguments compares
+    # the two ported glob lists themselves and not just the matcher.
+    "storage.classify": lambda t, a: [
+        stale._classify(
+            line,
+            globs_arg(a, "artifact_globs", stale.STALE_ARTIFACT_GLOBS),
+            globs_arg(a, "log_globs", stale.LEGACY_LOG_GLOBS),
+        )
+        for line in t.splitlines()
+        if line
+    ],
     "logsqueeze.lsof_has_writer": lambda t, a: gzip_inplace._lsof_has_writer(t),
     # config / audit / updater
     "config.read_paths_yaml": lambda p, a: config.read_paths_yaml(p),
@@ -123,6 +219,13 @@ DISPATCH: dict[str, Adapter] = {
     "audit.read_recent": lambda p, a: audit_logger.read_recent(p, limit=a["limit"]),
     "updater.parse_sha256_line": lambda t, a: installer.parse_sha256_line(
         t, asset_name=a["asset_name"]
+    ),
+    # json.loads here rather than a "json" input kind: the fixture is a captured API
+    # response, and each side decoding it the way its own language does is part of
+    # what the comparison is for -- an integer html_url renders through str() and the
+    # two languages spell integers differently by default.
+    "updater.parse_release": lambda t, a: checker.parse_release(
+        json.loads(t), asset_name=a["asset_name"]
     ),
 }
 
@@ -134,6 +237,16 @@ def plain(value: Any) -> Any:
     JSON with its identity intact, and an arbitrary set order would show up as a
     divergence that is not one.
     """
+    if isinstance(value, float) and not math.isfinite(value):
+        # json.dumps writes the JavaScript-flavoured Infinity/NaN words, which Go's
+        # decoder refuses outright -- so a `.inf` in a config file, which YAML 1.1
+        # allows and probes.yml can therefore contain, would take the whole harness
+        # down rather than being compared. Both sides spell a non-finite float as a
+        # tagged string instead: still strict JSON, and a +inf that turns into a
+        # -inf is still a divergence.
+        if math.isnan(value):
+            return "<nan>"
+        return "<+inf>" if value > 0 else "<-inf>"
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
     if isinstance(value, enum.Enum):
@@ -183,13 +296,21 @@ def run_case(case: dict[str, Any], tmp: Path) -> dict[str, Any]:
     data = (TESTDATA / str(case["fixture"])).read_bytes()
     args = dict(case["args"])
     needle = ""
+    payload: Any
     if case["input"] == "path":
         # Keep the fixture's own basename: a reader debugging a failure can tell
         # which capture a temp path came from.
         target = tmp / Path(str(case["fixture"])).name
         target.write_bytes(data)
-        payload: Any = target
+        payload = target
         needle = str(target)
+    elif case["input"] == "tree":
+        # One directory per case, not per fixture: two cases sharing a tree must not
+        # be able to see each other's writes, even though nothing here writes today.
+        root = tmp / str(case["id"]).replace("/", "_").replace("#", "-")
+        materialise_tree(json.loads(data.decode()), root)
+        payload = root
+        needle = str(root)
     else:
         payload = data.decode()
 

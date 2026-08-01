@@ -1,0 +1,110 @@
+# Run every case in testdata/cases.jsonl through both implementations and
+# compare the results.
+#
+# This is the gate the port is actually verified by. The Go table tests say the
+# parsers do what I believed Python does; this says they do what Python does.
+# The two are not the same claim, and only one of them survives a fixture I
+# misread.
+#
+# It runs on every PR rather than nightly on purpose. The pipeline is three
+# process launches over a 94-case corpus and the comparison itself takes
+# milliseconds -- the cost here is `pip install`, which setup-python's cache
+# absorbs after the first run. A harness slow enough to be moved to a nightly
+# schedule is one that gets ignored, then muted.
+#
+# Deleted at M7 with the Python. Claiming a Python oracle will be maintained
+# after deleting the Python is how a job ends up permanently red.
+name: differential
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "internal/core/**"
+      - "src/fleetfix/**"
+      - "testdata/**"
+      - "tools/**"
+      - "differential/**"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/differential.yml"
+  pull_request:
+    paths:
+      - "internal/core/**"
+      - "src/fleetfix/**"
+      - "testdata/**"
+      - "tools/**"
+      - "differential/**"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/differential.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: differential-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compare:
+    # Same runner and interpreter as python-legacy. If the oracle behaved
+    # differently here than it does in the job that keeps it green, the harness
+    # would be comparing Go against a Python nothing else tests.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Runtime deps only. The oracle imports fleetfix.config and
+      # fleetfix.audit.otel, so it needs the package installed, but it never
+      # imports pytest or ruff -- that is python-legacy's job.
+      - name: Install the Python side
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Python oracle
+        run: python tools/oracle/py_oracle.py --out py.jsonl
+
+      - name: Go oracle
+        run: go run ./tools/ffdiff oracle --out go.jsonl
+
+      # --require-complete is on now that every case in the manifest has a Go
+      # adapter: an unimplemented case is a failure rather than a line in the
+      # report. Without it, deleting an adapter -- or adding a case and
+      # forgetting the Go side -- reads as a passing run.
+      #
+      # --known is passed unconditionally against a file that is checked in
+      # holding an empty list. `ffdiff compare` errors on a --known path it
+      # cannot read, so deleting the file fails here rather than silently
+      # accepting nothing.
+      - name: Compare
+        run: |
+          go run ./tools/ffdiff compare \
+            --py py.jsonl \
+            --go go.jsonl \
+            --known differential/known_divergences.yaml \
+            --require-complete \
+            --out report.json
+
+      # Uploaded on failure too -- especially on failure. The summary names the
+      # diverging cases; the report carries both sides' values for each one,
+      # which is what the fix is written against.
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: differential-report
+          path: report.json
+          if-no-files-found: warn

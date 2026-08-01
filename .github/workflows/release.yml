@@ -49,10 +49,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-          # Keyed on go.mod because there is no go.sum yet -- the binary is
-          # stdlib-only until M2 adds tview. setup-go needs a file to hash and
-          # warns on every job without this.
-          cache-dependency-path: go.mod
 
       # binfmt, so the arm64 binary's own --version can be asserted rather than
       # assumed. An arch mismatch that reaches a host bricks fleetfix on it.

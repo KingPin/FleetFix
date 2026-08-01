@@ -1,0 +1,59 @@
+# Cases where Go is allowed to disagree with Python.
+#
+# Empty, and the intent is that it stays that way. A divergence here is a
+# promise that the port will not reproduce a Python behaviour, so each entry
+# needs enough to be argued with later:
+#
+#   divergences:
+#     - id: ss.ipv6_scope_id          # a case id from testdata/cases.jsonl
+#       reason: >-                    # what differs and why Go is right
+#         Python drops the %eth0 scope suffix because split(":") takes the last
+#         field; the address it reports is not routable.
+#       issue: https://github.com/KingPin/FleetFix/issues/NN
+#
+# All three fields are required and `ffdiff compare` rejects the file without
+# them -- an id with no reason is a divergence someone stopped investigating,
+# and one with no issue is a divergence nobody is going to fix. Listing the same
+# id twice is also rejected, so a stale entry cannot be masked by a newer one.
+#
+# The file exists while empty on purpose: CI passes --known unconditionally, and
+# `loadKnownDivergences` errors on a path it cannot read. Deleting this file
+# fails the job loudly instead of quietly accepting nothing, which is what a
+# `[ -f ... ]` guard in the workflow would do.
+#
+# Deleted at M7 with the rest of the harness.
+divergences:
+  - id: docker.started_at_py311
+    reason: >-
+      An interpreter boundary, not a parser disagreement. The oracle runs CPython
+      3.10 because that is what the v1.6.0 release binary bundles, and 3.10's
+      fromisoformat accepts a fractional-seconds field of exactly three or six
+      digits. 3.11 widened that -- along with hour 24, ISO week dates and basic
+      format -- and internal/pytime implements the widened boundary. The first
+      line of the fixture is the one that matters: docker renders
+      {{.State.StartedAt}} as RFC3339Nano, nine digits, so on the shipped binary
+      every running container's start time reads as None and
+      Container.is_restart_loop reports False for all of them. Reproducing 3.10
+      would ship a parser that cannot read its own input. Split out from
+      docker.started_at so this exemption covers only the nine affected forms.
+    issue: https://github.com/KingPin/FleetFix/issues/10
+  - id: probes.nonfinite_int_knob#resolved
+    reason: >-
+      A non-finite float on an integer knob. v1 calls int(float("inf")) and
+      raises OverflowError out of load_probes -- the one function whose
+      docstring promises "Nothing here raises" -- so `ping.count: .inf` takes
+      the app down at startup. Go clamps to the bound and records a clamp
+      warning, which is the answer the float knobs already give for the same
+      input and a value the operator could have configured directly. Reading
+      the file agrees on both sides; only the resolve diverges, which is what
+      locates the defect in the resolver rather than the parser.
+    issue: https://github.com/KingPin/FleetFix/issues/9
+  - id: probes.unrepresentable_float_knob#resolved
+    reason: >-
+      The mirror image: an integer too wide for a float64 on a float knob. v1
+      calls float(10**400) and raises OverflowError, again out of load_probes.
+      Go clamps to the bound. Distinct from probes.wide_numbers, which spells
+      the same magnitude as the float literal 1.0e+400 -- PyYAML resolves that
+      to inf without ever calling float(int), so the two sides agree there and
+      the defect stays hidden.
+    issue: https://github.com/KingPin/FleetFix/issues/9

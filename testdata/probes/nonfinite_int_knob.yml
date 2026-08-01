@@ -1,0 +1,26 @@
+# A non-finite float landing on an integer knob. This is where v1 stops being a
+# program: int(float("inf")) raises OverflowError, so `count: .inf` propagates out
+# of load_probes and takes the app down at startup -- in the one function whose
+# docstring promises "Nothing here raises". Measured on CPython 3.14.6:
+#
+#   count: .inf   -> OverflowError: cannot convert float infinity to integer
+#   count: .nan   -> ValueError: cannot convert float NaN to integer
+#   count: -.inf  -> OverflowError: cannot convert float infinity to integer
+#
+# Go clamps to the bound instead, which is the answer the float knobs already give
+# for the same input and a value the operator could have configured anyway. That is
+# a deliberate divergence, recorded in differential/known_divergences.yaml against
+# https://github.com/KingPin/FleetFix/issues/9 -- so this fixture is expected to
+# compare as a divergence, not as equal.
+#
+# Only the `.inf` spelling is here: `.nan` and `-.inf` take the same Go code path
+# and differ only in which Python exception comes out, which is a detail of the
+# implementation being replaced. All three are covered on the Go side by
+# TestResolveProbesClampsNonFiniteIntegerKnobsWhereV1Crashes.
+#
+# Reading this file does NOT raise on either side -- PyYAML resolves .inf to a real
+# float and so does the Go emulation -- so probes.nonfinite_int_knob compares equal
+# and only the #resolved variant diverges. That split is the point: it locates the
+# defect in the resolver rather than the parser.
+ping:
+  count: .inf
