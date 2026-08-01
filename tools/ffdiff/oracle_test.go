@@ -12,6 +12,7 @@ import (
 
 	"github.com/KingPin/FleetFix/v2/internal/fixture"
 	"github.com/google/go-cmp/cmp"
+	"gopkg.in/yaml.v3"
 )
 
 func TestRunDispatchesModes(t *testing.T) {
@@ -88,6 +89,93 @@ func TestOracleRunsRealCases(t *testing.T) {
 			t.Errorf("a ported function recorded an error: %v", rec)
 		}
 	}
+}
+
+// TestOracleRunsEveryCaseInTheCorpus is the Go half of a pair: py_oracle has
+// test_run_produces_one_record_per_case_and_only_documented_errors, and until now
+// nothing said the same thing about this side. The narrow test above proves the
+// plumbing on two cases; this one proves every adapter can run the cases the
+// manifest points at it.
+//
+// It matters because an adapter is only reached through the dispatch table, so a
+// closure that reads the wrong argument name, hands a parser the wrong field, or
+// panics on a fixture it has never seen is invisible to the unit tests of the
+// parser underneath it. In CI that surfaces as an error record, which `compare`
+// counts as a divergence -- a failure attributed to the port rather than to the
+// harness. Here it names the case.
+//
+// An error is allowed only where a divergence entry argues for one. Those entries
+// are written about the Python side (v1 raises, Go answers), so today the set is
+// empty on this side; keying on the same file rather than on a literal list means
+// a future Go-raises divergence needs an argued entry rather than an edit here.
+func TestOracleRunsEveryCaseInTheCorpus(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "go.jsonl")
+	var stdout, stderr strings.Builder
+	if err := runOracle([]string{
+		"--manifest", fixture.Path("cases.jsonl"),
+		"--testdata", filepath.Join(fixture.Root(), "testdata"),
+		"--out", out,
+	}, &stdout, &stderr); err != nil {
+		t.Fatalf("runOracle: %v (stderr: %s)", err, stderr.String())
+	}
+
+	cases, err := loadCases(fixture.Path("cases.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	recs, order, err := loadRecords(out)
+	if err != nil {
+		t.Fatalf("loadRecords: %v", err)
+	}
+	want := make([]string, len(cases))
+	for i, c := range cases {
+		want[i] = c.ID
+	}
+	if !equalStrings(order, want) {
+		t.Fatalf("the oracle wrote %d records for %d cases, or reordered them", len(order), len(want))
+	}
+
+	known, err := knownDivergenceIDs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range order {
+		rec, _ := recs[id].(map[string]any)
+		if rec["error"] == nil {
+			continue
+		}
+		// Unported is a different claim from broken, and the manifest-agreement
+		// test is what keeps it honest, so say which one this is.
+		switch {
+		case isUnimplemented(rec):
+			t.Errorf("%s: no adapter for %s", id, unportedFn(rec))
+		case !known[id]:
+			t.Errorf("%s: the adapter could not run its own case: %v", id, rec["error"])
+		}
+	}
+}
+
+// knownDivergenceIDs reads the ids out of the file `compare` reads, rather than a
+// copy: a list maintained here would drift, and drifting towards permissive is
+// how an error stops being noticed.
+func knownDivergenceIDs() (map[string]bool, error) {
+	body, err := os.ReadFile(filepath.Join(fixture.Root(), "differential", "known_divergences.yaml"))
+	if err != nil {
+		return nil, err
+	}
+	var doc struct {
+		Divergences []struct {
+			ID string `yaml:"id"`
+		} `yaml:"divergences"`
+	}
+	if err := yaml.Unmarshal(body, &doc); err != nil {
+		return nil, err
+	}
+	ids := make(map[string]bool, len(doc.Divergences))
+	for _, d := range doc.Divergences {
+		ids[d.ID] = true
+	}
+	return ids, nil
 }
 
 // A case naming a function no adapter implements is the port's normal

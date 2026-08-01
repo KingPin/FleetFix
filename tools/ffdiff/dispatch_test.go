@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/KingPin/FleetFix/v2/internal/core/network"
 	"github.com/KingPin/FleetFix/v2/internal/core/system"
 )
 
@@ -235,6 +236,74 @@ func TestOptStrListArg(t *testing.T) {
 			}
 			if fmt.Sprint(got) != fmt.Sprint(tt.want) || (got == nil) != (tt.want == nil) {
 				t.Errorf("optStrListArg(%v) = %#v, want %#v", tt.args, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestGlobsArg covers the one line optStrListArg does not draw: the difference
+// between a glob list nobody configured and one an operator emptied.
+//
+// Both arrive as "no value" in JSON terms -- absent, or null -- but only the first
+// two mean "use what ships". An empty list is a case asking what the classifier
+// does with nothing configured, and answering that with the defaults would compare
+// something else entirely while still reporting equal. py_oracle.globs_arg draws
+// the same line, and these two tables are the only thing keeping it drawn.
+func TestGlobsArg(t *testing.T) {
+	def := []string{"*.default"}
+	tests := []struct {
+		name    string
+		args    map[string]any
+		want    []string
+		wantErr bool
+	}{
+		{name: "absent falls back", args: map[string]any{}, want: def},
+		{name: "nil args falls back", args: nil, want: def},
+		{name: "explicit null falls back", args: map[string]any{"g": nil}, want: def},
+		// The case that matters: empty is a configuration, not an absence.
+		{name: "empty list is not the default", args: map[string]any{"g": []any{}}, want: []string{}},
+		{name: "present list wins", args: map[string]any{"g": []any{"*.gz"}}, want: []string{"*.gz"}},
+		{name: "wrong shape is a signature disagreement", args: map[string]any{"g": "*.gz"}, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := globsArg(tt.args, "g", def)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("globsArg(%v) error = %v, wantErr %v", tt.args, err, tt.wantErr)
+			}
+			if err != nil {
+				return
+			}
+			if fmt.Sprint(got) != fmt.Sprint(tt.want) {
+				t.Errorf("globsArg(%v) = %#v, want %#v", tt.args, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestTraceArgsRejectsABadSignature pins the two error paths out of the shared
+// reader for the traceroute and tracepath adapters. A case missing one of these
+// arguments is the two dispatch tables disagreeing, and passing along a zero
+// target or a zero hop limit would produce a comparable-looking result from a
+// question neither side asked.
+func TestTraceArgsRejectsABadSignature(t *testing.T) {
+	parse := func(string, string, int) network.TraceResult {
+		t.Fatal("parser ran despite a bad signature")
+		return network.TraceResult{}
+	}
+	tests := []struct {
+		name string
+		args map[string]any
+	}{
+		{"no target", map[string]any{"max_hops": 30.0}},
+		{"target is not a string", map[string]any{"target": 1.0, "max_hops": 30.0}},
+		{"no max_hops", map[string]any{"target": "example.com"}},
+		{"max_hops is not a number", map[string]any{"target": "example.com", "max_hops": "30"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := traceArgs(tt.args, "", parse); err == nil {
+				t.Errorf("traceArgs(%v) = nil error, want a signature disagreement", tt.args)
 			}
 		})
 	}
