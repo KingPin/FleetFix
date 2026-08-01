@@ -2,10 +2,13 @@ package builtin
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/KingPin/FleetFix/v2/internal/check"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/disk"
@@ -13,6 +16,7 @@ import (
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/logsqueeze"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/network"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/services"
+	"github.com/KingPin/FleetFix/v2/internal/check/builtin/storage"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/system"
 	"github.com/KingPin/FleetFix/v2/internal/cmdrun"
 	"github.com/KingPin/FleetFix/v2/internal/container"
@@ -451,6 +455,81 @@ func TestTheDefaultLogSourceIsTheLiveVarLog(t *testing.T) {
 	}
 	if src.MinBytes != logsqueeze.DefaultMinBytes {
 		t.Errorf("min = %d, want %d", src.MinBytes, logsqueeze.DefaultMinBytes)
+	}
+}
+
+func TestTheStorageDomainIsRegistered(t *testing.T) {
+	reg := Registry(Deps{})
+
+	registered := map[check.ID]bool{}
+	for _, spec := range reg.Specs() {
+		registered[spec.ID] = true
+	}
+	for _, id := range []check.ID{storage.StaleID, storage.EnvID} {
+		if !registered[id] {
+			t.Errorf("%s is not registered in this build", id)
+		}
+	}
+}
+
+// Registered but not run by a bare `fleetfix check`. Both need a path nobody can
+// guess, and the whole argument for making them parameters rather than config is
+// that the default run leaves them alone -- so the default set is where that has
+// to be asserted, not in the domain's own spec test.
+func TestTheStorageChecksAreOutOfTheDefaultSet(t *testing.T) {
+	reg := Registry(Deps{})
+
+	byDefault, err := reg.Select(nil, nil)
+	if err != nil {
+		t.Fatalf("selecting the default set failed: %v", err)
+	}
+	for _, c := range byDefault {
+		if id := c.Spec().ID; id == storage.StaleID || id == storage.EnvID {
+			t.Errorf("%s runs by default, but it has no path to run against", id)
+		}
+	}
+
+	// Still reachable when named, which is the other half of the contract.
+	named, err := reg.Select([]string{"storage"}, nil)
+	if err != nil {
+		t.Fatalf("selecting the storage domain failed: %v", err)
+	}
+	if len(named) != 2 {
+		t.Errorf("--check storage selects %d checks, want 2", len(named))
+	}
+}
+
+// The operator's parameter reaches the registered check. A collector that read a
+// root from somewhere else -- a package variable, the invoking user's home --
+// would pass the registration test above and scan the wrong machine.
+func TestTheOperatorsRootReachesTheStaleCheck(t *testing.T) {
+	root := t.TempDir()
+	old := time.Now().Add(-400 * 24 * time.Hour)
+	dump := filepath.Join(root, "backup.sql")
+	if err := os.WriteFile(dump, make([]byte, 2048), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := os.Chtimes(dump, old, old); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+
+	reg := Registry(Deps{})
+	selected, err := reg.Select([]string{string(storage.StaleID)}, nil)
+	if err != nil {
+		t.Fatalf("selecting %s failed: %v", storage.StaleID, err)
+	}
+	res := selected[0].Run(t.Context(), check.Input{
+		Params: map[string]string{
+			storage.RootParam:          root,
+			storage.OlderThanDaysParam: "30",
+		},
+		Progress:   check.Discard,
+		Thresholds: threshold.Defaults(),
+	})
+
+	want := "1 stale file holding 2.0 KB under " + root + ", largest is " + dump + " at 2.0 KB"
+	if res.Summary != want {
+		t.Errorf("summary = %q, want %q -- the parameter did not reach the check", res.Summary, want)
 	}
 }
 

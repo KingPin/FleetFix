@@ -22,6 +22,7 @@ import (
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/logsqueeze"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/network"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/services"
+	"github.com/KingPin/FleetFix/v2/internal/check/builtin/storage"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/system"
 	"github.com/KingPin/FleetFix/v2/internal/cmdrun"
 	"github.com/KingPin/FleetFix/v2/internal/container"
@@ -85,6 +86,12 @@ type Deps struct {
 	// should not have to remember which of the seams treat their zero as "nobody
 	// said" and which as "nothing".
 	Logs *logsqueeze.Source
+
+	// The storage domain has no field here, and that is not an omission. Both of
+	// its checks are handed their path by the operator at run time and read it with
+	// syscalls, so there is no subprocess to route, no synthetic filesystem to
+	// stage and no config to thread -- the parameter is the seam, and it arrives
+	// through Input rather than through this struct.
 }
 
 func (d Deps) runner() cmdrun.Runner {
@@ -201,6 +208,7 @@ func Checks(deps Deps) []check.Check {
 	out = append(out, services.Checks(run)...)
 	out = append(out, system.Checks(deps.system())...)
 	out = append(out, logsqueeze.Checks(deps.logs())...)
+	out = append(out, storage.Checks()...)
 	return out
 }
 
