@@ -18,6 +18,7 @@ const (
 	PerfFile       = "perf.yml"
 	OtelFile       = "otel.yml"
 	ThresholdsFile = "thresholds.yml"
+	IdentityFile   = "identity.yml"
 )
 
 // SystemDir is the fleet-wide configuration directory, new in v2.

@@ -142,6 +142,10 @@ jobs:
           # pointer to cover an unreachable syscall error would be more to get
           # wrong than the branch is worth.
           internal/hostinfo=95
+          # Who every destructive action is attributed to. An untested branch
+          # here is a sudo action recorded against root instead of the login that
+          # asked for it, which is the one thing an audit trail cannot get wrong.
+          internal/identity=95
           internal/hostfs=95
           internal/logging=95
           internal/release=95
