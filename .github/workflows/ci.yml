@@ -155,6 +155,10 @@ jobs:
           # branch here is either a destructive action offered to someone who
           # cannot run it or one withheld from someone who can.
           internal/privilege=95
+          # The one resolver check --json and doctor share. An untested branch is
+          # the exact failure it exists to prevent: doctor reporting a policy or a
+          # file set that the checks did not actually use.
+          internal/resolve=95
           internal/hostfs=95
           internal/logging=95
           internal/release=95
