@@ -11,9 +11,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/KingPin/FleetFix/v2/internal/check"
 	"github.com/KingPin/FleetFix/v2/internal/cli/checkcmd"
 	"github.com/KingPin/FleetFix/v2/internal/cmdrun"
 	"github.com/KingPin/FleetFix/v2/internal/exitcode"
+	"github.com/KingPin/FleetFix/v2/internal/report"
 	"github.com/KingPin/FleetFix/v2/internal/version"
 )
 
@@ -117,30 +119,42 @@ func TestUsageErrorsExitUnknownAndWriteNothingToStdout(t *testing.T) {
 	}
 }
 
+// decode insists stdout is exactly one report and returns it. Decoded from the
+// whole of stdout, not searched within it: a trailing log line or a leading
+// banner makes this fail, which is the point.
+func decode(t *testing.T, stdout string) report.Report {
+	t.Helper()
+	var rep report.Report
+	if err := json.Unmarshal([]byte(stdout), &rep); err != nil {
+		t.Fatalf("stdout is not a single JSON document: %v\n%s", err, stdout)
+	}
+	return rep
+}
+
 func TestCheckWritesOnlyJSONToStdout(t *testing.T) {
 	stdout, stderr, code := run(t, "check", "--json")
 
 	if code != exitcode.Unknown {
-		t.Errorf("exit code = %d, want %d: this build examined nothing, so the state is unknown", code, exitcode.Unknown)
+		t.Errorf("exit code = %d, want %d: this build registers no checks, so the state is unknown", code, exitcode.Unknown)
 	}
 	if stderr != "" {
 		t.Errorf("stderr = %q, want empty at the default log level", stderr)
 	}
 
-	// Decoded from the whole of stdout, not searched within it. A trailing log line
-	// or a leading banner would make this fail, which is the point.
-	var rep checkcmd.Report
-	if err := json.Unmarshal([]byte(stdout), &rep); err != nil {
-		t.Fatalf("stdout is not a single JSON document: %v\n%s", err, stdout)
+	rep := decode(t, stdout)
+	if rep.Schema != report.Schema {
+		t.Errorf("schema = %q, want %q", rep.Schema, report.Schema)
 	}
-	if rep.Schema != checkcmd.SchemaUnimplemented {
-		t.Errorf("schema = %q, want %q", rep.Schema, checkcmd.SchemaUnimplemented)
-	}
-	if rep.Status != "unknown" {
-		t.Errorf("status = %q, want %q", rep.Status, "unknown")
+	// error, not unknown: "unknown" is not one of the six statuses, and the run
+	// did not fail to reach a verdict -- it failed to happen at all.
+	if rep.Status != check.StatusError {
+		t.Errorf("status = %q, want %q", rep.Status, check.StatusError)
 	}
 	if rep.ExitCode != exitcode.Unknown {
 		t.Errorf("exit_code in the document = %d, want %d", rep.ExitCode, exitcode.Unknown)
+	}
+	if rep.Error == "" {
+		t.Error("a failed run carries no error; the document says nothing about why it is empty")
 	}
 	if rep.FleetFixVersion != version.Version() {
 		t.Errorf("fleetfix_version = %q, want %q", rep.FleetFixVersion, version.Version())
@@ -151,17 +165,39 @@ func TestCheckWritesOnlyJSONToStdout(t *testing.T) {
 }
 
 // TestCheckIsTheDefaultOutputMode covers the bare `fleetfix check`, which is what an
-// operator types and what M3's --ndjson/--prom must not change the meaning of.
+// operator types and what --ndjson and the coming --prom must not change the
+// meaning of.
+//
+// Compared after dropping the two keys that describe the invocation rather than
+// the host, which is also the byte-stability property M3 has to hold: two runs
+// over an unchanged host differ in when they ran and nothing else.
 func TestCheckIsTheDefaultOutputMode(t *testing.T) {
 	withFlag, _, codeA := run(t, "check", "--json")
 	bare, _, codeB := run(t, "check")
 
-	if bare != withFlag {
-		t.Errorf("`check` and `check --json` differ:\n%s\n%s", bare, withFlag)
+	if a, b := redact(t, bare), redact(t, withFlag); a != b {
+		t.Errorf("`check` and `check --json` differ:\n%s\n%s", a, b)
 	}
 	if codeA != codeB {
 		t.Errorf("exit codes differ: %d vs %d", codeA, codeB)
 	}
+}
+
+// redact drops generated_at and duration_ms. Dropped rather than blanked, so a
+// key that stopped being emitted at all would still show up as a difference.
+func redact(t *testing.T, stdout string) string {
+	t.Helper()
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+		t.Fatalf("stdout is not JSON: %v\n%s", err, stdout)
+	}
+	delete(doc, "generated_at")
+	delete(doc, "duration_ms")
+	b, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }
 
 // TestChecksIsAnEmptyArrayNotNull guards the []-versus-null distinction at the byte
@@ -178,6 +214,174 @@ func TestChecksIsAnEmptyArrayNotNull(t *testing.T) {
 	}
 }
 
+func TestNDJSONPutsTheEnvelopeOnItsOwnLine(t *testing.T) {
+	stdout, stderr, code := run(t, "check", "--ndjson")
+
+	if code != exitcode.Unknown {
+		t.Errorf("exit code = %d, want %d; the format must not change the verdict", code, exitcode.Unknown)
+	}
+	if stderr != "" {
+		t.Errorf("stderr = %q, want empty", stderr)
+	}
+	lines := strings.Split(strings.TrimSuffix(stdout, "\n"), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("got %d lines, want just the envelope on a build with no checks:\n%s", len(lines), stdout)
+	}
+	if rep := decode(t, lines[0]); rep.Schema != report.Schema {
+		t.Errorf("the line is not the envelope: %q", lines[0])
+	}
+	// Compact, or a line-oriented reader would see one object as several records.
+	if strings.Contains(stdout, "\n  ") {
+		t.Errorf("the ndjson output is indented:\n%s", stdout)
+	}
+}
+
+func TestTwoOutputModesAtOnceIsAUsageError(t *testing.T) {
+	stdout, stderr, code := run(t, "check", "--json", "--ndjson")
+
+	if code != exitcode.Unknown {
+		t.Errorf("exit code = %d, want %d", code, exitcode.Unknown)
+	}
+	if stdout != "" {
+		t.Errorf("stdout = %q, want empty: neither mode was chosen", stdout)
+	}
+	if !strings.Contains(stderr, "pick one") {
+		t.Errorf("stderr = %q, want it to say the two modes conflict", stderr)
+	}
+}
+
+// --ndjson alone is not a conflict: --json defaults to true, so refusing the
+// pair on the flag's value rather than on whether it was typed would make
+// --ndjson impossible to use.
+func TestNDJSONAloneIsNotAConflict(t *testing.T) {
+	_, stderr, code := run(t, "check", "--ndjson")
+
+	if strings.Contains(stderr, "pick one") {
+		t.Errorf("--ndjson on its own was refused: %q", stderr)
+	}
+	if code != exitcode.Unknown {
+		t.Errorf("exit code = %d, want %d", code, exitcode.Unknown)
+	}
+}
+
+func TestListPrintsWhatTheBuildCanCheck(t *testing.T) {
+	stdout, stderr, code := run(t, "check", "--list")
+
+	if code != exitcode.OK {
+		t.Errorf("exit code = %d, want 0: --list says nothing about the host", code)
+	}
+	if stderr != "" {
+		t.Errorf("stderr = %q, want empty", stderr)
+	}
+	var listing checkcmd.Listing
+	if err := json.Unmarshal([]byte(stdout), &listing); err != nil {
+		t.Fatalf("the listing is not a single JSON document: %v\n%s", err, stdout)
+	}
+	if listing.Schema != checkcmd.ListSchema {
+		t.Errorf("schema = %q, want %q", listing.Schema, checkcmd.ListSchema)
+	}
+	if listing.FleetFixVersion != version.Version() {
+		t.Errorf("fleetfix_version = %q, want %q", listing.FleetFixVersion, version.Version())
+	}
+}
+
+// A selector naming nothing is loud and still a document: a warning here would
+// run nothing, find nothing wrong and exit 0, which is a permanently green host.
+func TestAnUnmatchedSelectorIsReportedInTheDocument(t *testing.T) {
+	stdout, stderr, code := run(t, "check", "--check", "dsk.usage")
+
+	if code != exitcode.Unknown {
+		t.Errorf("exit code = %d, want %d", code, exitcode.Unknown)
+	}
+	if stderr != "" {
+		t.Errorf("stderr = %q, want empty: the complaint belongs in the document", stderr)
+	}
+	rep := decode(t, stdout)
+	if !strings.Contains(rep.Error, "dsk.usage") {
+		t.Errorf("error = %q, want it to quote the selector", rep.Error)
+	}
+}
+
+func TestExitZeroReachesTheRun(t *testing.T) {
+	stdout, _, code := run(t, "check", "--exit-zero")
+
+	if code != exitcode.OK {
+		t.Errorf("exit code = %d, want 0", code)
+	}
+	if rep := decode(t, stdout); rep.ExitCode != exitcode.Unknown {
+		t.Errorf("document exit_code = %d, want %d: the verdict belongs in the document", rep.ExitCode, exitcode.Unknown)
+	}
+}
+
+// A malformed pair is refused rather than ignored: an operator who typed
+// `--param path /var/log` meant to inspect something, and a run that quietly
+// skipped the check for want of a parameter it was given would be the least
+// helpful possible answer.
+func TestAMalformedParamIsAUsageError(t *testing.T) {
+	for _, arg := range []string{"path", "=/var/log", " =x"} {
+		t.Run(arg, func(t *testing.T) {
+			stdout, stderr, code := run(t, "check", "--param", arg)
+
+			if code != exitcode.Unknown {
+				t.Errorf("exit code = %d, want %d", code, exitcode.Unknown)
+			}
+			if stdout != "" {
+				t.Errorf("stdout = %q, want empty", stdout)
+			}
+			if !strings.Contains(stderr, "K=V") {
+				t.Errorf("stderr = %q, want it to state the expected form", stderr)
+			}
+		})
+	}
+}
+
+func TestWellFormedParamsAreAccepted(t *testing.T) {
+	stdout, stderr, _ := run(t, "check", "--param", "path=/var/log", "--param", "depth=2")
+
+	if strings.Contains(stderr, "K=V") {
+		t.Errorf("a well-formed pair was refused: %q", stderr)
+	}
+	// An empty value is a value: `--param path=` says "the operator supplied
+	// nothing", which the runner already distinguishes from not asking.
+	if _, _, code := run(t, "check", "--param", "path="); code != exitcode.Unknown {
+		t.Errorf("exit code = %d, want the empty-registry answer %d", code, exitcode.Unknown)
+	}
+	decode(t, stdout)
+}
+
+// A repeatable flag that also splits on commas, because both spellings are how
+// this gets used: a person types --check twice, an Ansible task templates one
+// string. Accepting only one of them would silently do nothing useful with the
+// other.
+func TestSelectorsAreRepeatableAndCommaSeparated(t *testing.T) {
+	cases := []struct {
+		name string
+		set  []string
+		want []string
+	}{
+		{"repeated", []string{"disk", "net"}, []string{"disk", "net"}},
+		{"comma separated", []string{"disk,net"}, []string{"disk", "net"}},
+		{"both, with the whitespace an operator leaves in", []string{"disk, net", "docker"}, []string{"disk", "net", "docker"}},
+		{"empty parts are dropped rather than matched", []string{"disk,,"}, []string{"disk"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var list stringList
+			for _, v := range tc.set {
+				if err := list.Set(v); err != nil {
+					t.Fatalf("Set(%q) errored: %v", v, err)
+				}
+			}
+			if strings.Join(list, "\x00") != strings.Join(tc.want, "\x00") {
+				t.Errorf("selectors = %v, want %v", []string(list), tc.want)
+			}
+			if got := list.String(); got != strings.Join(tc.want, ",") {
+				t.Errorf("String() = %q, want %q", got, strings.Join(tc.want, ","))
+			}
+		})
+	}
+}
+
 // TestDebugLoggingNeverContaminatesStdout is the reason the logging package is
 // wired the way it is. At the noisiest level the diagnostics still land on stderr
 // and stdout still decodes as one document.
@@ -187,9 +391,12 @@ func TestDebugLoggingNeverContaminatesStdout(t *testing.T) {
 	if code != exitcode.Unknown {
 		t.Errorf("exit code = %d, want %d", code, exitcode.Unknown)
 	}
-	var rep checkcmd.Report
+	var rep report.Report
 	if err := json.Unmarshal([]byte(stdout), &rep); err != nil {
 		t.Fatalf("debug logging contaminated stdout: %v\n%s", err, stdout)
+	}
+	if rep.Schema != report.Schema {
+		t.Errorf("schema = %q, want %q", rep.Schema, report.Schema)
 	}
 	if !strings.Contains(stderr, "starting") {
 		t.Errorf("stderr carries no debug record: %q", stderr)
@@ -210,10 +417,7 @@ func TestLogFileTakesTheDiagnosticsOffStderr(t *testing.T) {
 	if stderr != "" {
 		t.Errorf("stderr = %q, want empty with --log-file set", stderr)
 	}
-	var rep checkcmd.Report
-	if err := json.Unmarshal([]byte(stdout), &rep); err != nil {
-		t.Fatalf("stdout is not a single JSON document: %v\n%s", err, stdout)
-	}
+	decode(t, stdout)
 
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -401,9 +605,12 @@ func TestTheRealBinaryHonoursTheContract(t *testing.T) {
 		if res.Stderr != "" {
 			t.Errorf("stderr = %q, want empty", res.Stderr)
 		}
-		var rep checkcmd.Report
+		var rep report.Report
 		if err := json.Unmarshal([]byte(res.Stdout), &rep); err != nil {
 			t.Fatalf("the process's stdout is not a single JSON document: %v\n%s", err, res.Stdout)
+		}
+		if rep.Schema != report.Schema {
+			t.Errorf("schema = %q, want %q", rep.Schema, report.Schema)
 		}
 	})
 

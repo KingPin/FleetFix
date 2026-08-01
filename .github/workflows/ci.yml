@@ -124,6 +124,11 @@ jobs:
           # override that silently reads as something else.
           internal/config=90
           internal/cli=90
+          # The fleet front door. Every branch in it decides what a cron job's
+          # parser receives -- which document, on which stream, with which exit
+          # code -- and the paths worth testing are exactly the ones that only run
+          # when something has already gone wrong.
+          internal/cli/checkcmd=95
           # A leaf package of pure arithmetic that decides whether a host pages
           # anyone. Every bound in it was measured off v1's own severity
           # functions, and an untested branch is a fleet that stays green.
