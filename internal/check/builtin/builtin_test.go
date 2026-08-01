@@ -5,14 +5,18 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/fstest"
 
 	"github.com/KingPin/FleetFix/v2/internal/check"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/disk"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/docker"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/network"
+	"github.com/KingPin/FleetFix/v2/internal/check/builtin/system"
 	"github.com/KingPin/FleetFix/v2/internal/cmdrun"
 	"github.com/KingPin/FleetFix/v2/internal/container"
 	corenet "github.com/KingPin/FleetFix/v2/internal/core/network"
+	coresystem "github.com/KingPin/FleetFix/v2/internal/core/system"
+	"github.com/KingPin/FleetFix/v2/internal/hostfs"
 	"github.com/KingPin/FleetFix/v2/internal/netprobe"
 	"github.com/KingPin/FleetFix/v2/internal/threshold"
 )
@@ -284,6 +288,75 @@ func TestBuildingTheRegistryProbesNoDaemon(t *testing.T) {
 	}
 	if got := looks.Load(); got != 0 {
 		t.Errorf("PATH was searched %d times to assemble a registry nobody ran", got)
+	}
+}
+
+func TestTheSystemDomainIsRegistered(t *testing.T) {
+	reg := Registry(Deps{})
+
+	registered := map[check.ID]bool{}
+	for _, spec := range reg.Specs() {
+		registered[spec.ID] = true
+	}
+	for _, id := range []check.ID{
+		system.LoadID, system.MemoryID, system.ThermalID, system.UpdatesID, system.UptimeID,
+	} {
+		if !registered[id] {
+			t.Errorf("%s is not registered in this build", id)
+		}
+	}
+}
+
+// The staged /proc reaches the checks, which is the property that keeps a unit
+// test off the developer's own load average. A collector holding its own
+// hostfs.New() would pass every registration test above and still read this
+// machine.
+func TestTheStagedSystemSourceReachesTheChecks(t *testing.T) {
+	staged := system.Source{
+		Host: hostfs.Host{
+			Proc: fstest.MapFS{
+				coresystem.ProcLoadavg: &fstest.MapFile{Data: []byte("0.50 0.40 0.30 1/234 5678\n")},
+			},
+			Sys: fstest.MapFS{},
+		},
+		Run:  cmdrun.NewFake(),
+		CPUs: func() int { return 2 },
+	}
+	reg := Registry(Deps{System: &staged})
+
+	selected, err := reg.Select([]string{string(system.LoadID)}, nil)
+	if err != nil {
+		t.Fatalf("selecting %s failed: %v", system.LoadID, err)
+	}
+	res := selected[0].Run(t.Context(), check.Input{
+		Params:     map[string]string{},
+		Progress:   check.Discard,
+		Thresholds: threshold.Defaults(),
+	})
+
+	if want := "load 0.50 0.40 0.30 across 2 CPUs, 0.25 per CPU"; res.Summary != want {
+		t.Errorf("summary = %q, want %q -- the staged /proc did not reach the check", res.Summary, want)
+	}
+}
+
+// Nil System means the live host, and the one check in that domain that may
+// shell out has to do it through the caller's runner rather than a second one
+// of its own.
+func TestTheSharedRunnerReachesTheDefaultSystemSource(t *testing.T) {
+	fake := cmdrun.NewFake()
+
+	src := Deps{Run: fake}.system()
+	if src.Run != cmdrun.Runner(fake) {
+		t.Error("the default system source did not take the supplied runner")
+	}
+	// And the rest is still the live host, which is what makes Run on its own a
+	// usable configuration rather than half of one. A nil seam here is a panic on
+	// the first host that reaches it.
+	if src.Host.Proc == nil || src.Host.Sys == nil || src.CPUs == nil || src.ReadFile == nil {
+		t.Error("the default system source is missing a seam nobody overrode")
+	}
+	if src.NotifierPath != system.DefaultNotifierPath {
+		t.Errorf("the default system source reads the notifier from %q", src.NotifierPath)
 	}
 }
 

@@ -20,6 +20,7 @@ import (
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/disk"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/docker"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/network"
+	"github.com/KingPin/FleetFix/v2/internal/check/builtin/system"
 	"github.com/KingPin/FleetFix/v2/internal/cmdrun"
 	"github.com/KingPin/FleetFix/v2/internal/container"
 	corenet "github.com/KingPin/FleetFix/v2/internal/core/network"
@@ -60,6 +61,17 @@ type Deps struct {
 	// runtime doctor describes is the runtime the checks graded -- one probe per
 	// invocation, shared, rather than one per front door.
 	Container docker.Runtime
+
+	// System is the system domain's read seams: /proc and /sys through hostfs, the
+	// CPU count the load rule divides by, and the update-notifier fragment. Nil
+	// means the live host wearing whichever Run the caller supplied, so a caller
+	// with an ordinary machine underneath it sets nothing; a test that stages a
+	// whole /proc sets this.
+	//
+	// A pointer for Probes' reason: the zero Source reads from a nil filesystem
+	// and has no CPU count, which is not "the live host" but a Source that fails
+	// every check it is handed to.
+	System *system.Source
 }
 
 func (d Deps) runner() cmdrun.Runner {
@@ -129,6 +141,25 @@ func (d Deps) container() docker.Runtime {
 	}
 }
 
+// system is the system domain's source, defaulted to the live host but wearing
+// the caller's Run, so the one check in that domain that may shell out goes
+// through the same seam as every other subprocess this invocation makes.
+//
+// The hostfs roots are not overridable through Run and there is nothing to
+// derive them from, so a test that wants a staged /proc supplies the whole
+// Source -- which is what the domain's own tests do, and why this only has to
+// get the live case right.
+func (d Deps) system() system.Source {
+	if d.System != nil {
+		return *d.System
+	}
+	src := system.New()
+	if d.Run != nil {
+		src.Run = d.Run
+	}
+	return src
+}
+
 // Checks returns every check this build ships, grouped by domain.
 //
 // The order is the registration order and therefore --list's order. It is not the
@@ -142,6 +173,7 @@ func Checks(deps Deps) []check.Check {
 	out = append(out, disk.Checks(run)...)
 	out = append(out, network.Checks(deps.prober(), deps.probes())...)
 	out = append(out, docker.Checks(run, deps.container())...)
+	out = append(out, system.Checks(deps.system())...)
 	return out
 }
 
