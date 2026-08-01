@@ -137,6 +137,10 @@ jobs:
           # that decides a key, a type or an ordering is worth the floor.
           internal/report=95
           internal/cmdrun=95
+          # Decides whether the whole container domain reports at all. An untested
+          # branch is either a stopped daemon reported as healthy or a working one
+          # reported unavailable, and both are the same silence in the fleet view.
+          internal/container=95
           # Six strings that name the machine every other record is filed under.
           # Not 100 only because uname(2) cannot fail on Linux, and a function
           # pointer to cover an unreachable syscall error would be more to get
