@@ -19,9 +19,11 @@ import (
 	"io"
 	"strings"
 
+	"github.com/KingPin/FleetFix/v2/internal/check/builtin"
 	"github.com/KingPin/FleetFix/v2/internal/cli/checkcmd"
 	"github.com/KingPin/FleetFix/v2/internal/exitcode"
 	"github.com/KingPin/FleetFix/v2/internal/logging"
+	"github.com/KingPin/FleetFix/v2/internal/resolve"
 	"github.com/KingPin/FleetFix/v2/internal/version"
 )
 
@@ -189,9 +191,18 @@ func runCheck(argv []string, stdout, stderr io.Writer) int {
 		return exitcode.Unknown
 	}
 
+	// The host is resolved here, once, and handed to both places that need it: the
+	// envelope describes this host, and the collectors shell out through this
+	// host's runner. Letting checkcmd resolve its own would put a second read of
+	// /etc/os-release and a second sudo -n probe behind the same invocation, and
+	// nothing would guarantee the two agreed.
+	host := resolve.New(resolve.Options{})
+
 	code, err := checkcmd.Run(context.Background(), checkcmd.Options{
 		Stdout:   stdout,
 		Version:  version.Version(),
+		Resolved: host,
+		Registry: builtin.Registry(builtin.Deps{Run: host.Runner}),
 		Include:  include,
 		Exclude:  exclude,
 		Params:   values,
