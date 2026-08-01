@@ -203,9 +203,10 @@ func runCheck(argv []string, stdout, stderr io.Writer) int {
 		Version:  version.Version(),
 		Resolved: host,
 		Registry: builtin.Registry(builtin.Deps{
-			Run:    host.Runner,
-			Look:   host.Looker,
-			Probes: &host.Probes,
+			Run:       host.Runner,
+			Look:      host.Looker,
+			Probes:    &host.Probes,
+			Container: host.Container,
 		}),
 		Include:  include,
 		Exclude:  exclude,

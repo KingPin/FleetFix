@@ -12,10 +12,16 @@
 package builtin
 
 import (
+	"context"
+	"os"
+	"sync"
+
 	"github.com/KingPin/FleetFix/v2/internal/check"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/disk"
+	"github.com/KingPin/FleetFix/v2/internal/check/builtin/docker"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/network"
 	"github.com/KingPin/FleetFix/v2/internal/cmdrun"
+	"github.com/KingPin/FleetFix/v2/internal/container"
 	corenet "github.com/KingPin/FleetFix/v2/internal/core/network"
 	"github.com/KingPin/FleetFix/v2/internal/netprobe"
 )
@@ -45,6 +51,15 @@ type Deps struct {
 	// which would silently skip every network probe -- nil has to mean "nobody
 	// said", and that means the defaults.
 	Probes *corenet.Probes
+
+	// Container answers which container runtime this host has and whether its
+	// daemon replies. Nil means detect-and-probe over this Deps' own seams,
+	// memoised for the run.
+	//
+	// The production caller passes resolve.Resolved.Container instead, so the
+	// runtime doctor describes is the runtime the checks graded -- one probe per
+	// invocation, shared, rather than one per front door.
+	Container docker.Runtime
 }
 
 func (d Deps) runner() cmdrun.Runner {
@@ -71,11 +86,47 @@ func (d Deps) prober() *netprobe.Prober {
 	return p
 }
 
+func (d Deps) looker() cmdrun.Looker {
+	if d.Look == nil {
+		return cmdrun.NewPATH()
+	}
+	return d.Look
+}
+
 func (d Deps) probes() corenet.Probes {
 	if d.Probes == nil {
 		return corenet.DefaultProbes()
 	}
 	return *d.Probes
+}
+
+// container is the fallback runtime resolver, for a caller that supplied no
+// Container of its own -- a test, or a front door with nothing resolved yet.
+//
+// Both halves are inside the memo, so a run that selected no docker check costs
+// neither the PATH lookup nor the `docker version`, and a run that selected all
+// three costs one of each. That is the whole reason docker.Runtime is a function:
+// most hosts in a fleet run no containers, and three probes per invocation on
+// every one of them is a cost nobody would see and everybody would pay.
+//
+// The first caller's context bounds the probe and the answer stands for the run,
+// which is resolve.Resolved.Container's rule too, and for its reason: a daemon
+// that comes up mid-run must not make one check say unavailable and the next say
+// ok, because a reader of that document cannot tell it from a flapping daemon.
+func (d Deps) container() docker.Runtime {
+	if d.Container != nil {
+		return d.Container
+	}
+	var (
+		once   sync.Once
+		probed container.Runtime
+	)
+	return func(ctx context.Context) container.Runtime {
+		once.Do(func() {
+			probed = container.Detect(d.looker(), os.Getenv).Probe(ctx, d.runner())
+		})
+		return probed
+	}
 }
 
 // Checks returns every check this build ships, grouped by domain.
@@ -90,6 +141,7 @@ func Checks(deps Deps) []check.Check {
 	var out []check.Check
 	out = append(out, disk.Checks(run)...)
 	out = append(out, network.Checks(deps.prober(), deps.probes())...)
+	out = append(out, docker.Checks(run, deps.container())...)
 	return out
 }
 

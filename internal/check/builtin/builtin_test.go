@@ -1,13 +1,17 @@
 package builtin
 
 import (
+	"context"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/KingPin/FleetFix/v2/internal/check"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/disk"
+	"github.com/KingPin/FleetFix/v2/internal/check/builtin/docker"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/network"
 	"github.com/KingPin/FleetFix/v2/internal/cmdrun"
+	"github.com/KingPin/FleetFix/v2/internal/container"
 	corenet "github.com/KingPin/FleetFix/v2/internal/core/network"
 	"github.com/KingPin/FleetFix/v2/internal/netprobe"
 	"github.com/KingPin/FleetFix/v2/internal/threshold"
@@ -145,6 +149,11 @@ func TestANilRunnerMeansTheRealOne(t *testing.T) {
 	if got := (Deps{}).runner(); got == nil {
 		t.Fatal("Deps{}.runner() is nil; the collectors would panic on their first call")
 	}
+	// Same for Look, which the default container resolver searches PATH with. A
+	// nil one there would panic inside the memo, on the first host that has docker.
+	if got := (Deps{}).looker(); got == nil {
+		t.Fatal("Deps{}.looker() is nil; detecting the container runtime would panic")
+	}
 
 	checks := Checks(Deps{})
 	if len(checks) == 0 {
@@ -186,4 +195,104 @@ func TestTheStagedRunnerReachesTheChecks(t *testing.T) {
 	if calls := strings.Join(fake.Calls(), " "); !strings.Contains(calls, "df") {
 		t.Errorf("calls = %q, want the disk collector's df among them", calls)
 	}
+}
+
+func TestTheDockerDomainIsRegistered(t *testing.T) {
+	reg := Registry(Deps{})
+
+	registered := map[check.ID]bool{}
+	for _, spec := range reg.Specs() {
+		registered[spec.ID] = true
+	}
+	for _, id := range []check.ID{docker.RuntimeID, docker.ContainersID, docker.DiskID} {
+		if !registered[id] {
+			t.Errorf("%s is not registered in this build", id)
+		}
+	}
+}
+
+// The runtime the front door resolved is the runtime the checks grade, which is
+// the whole point of resolve.Resolved.Container being passed in rather than each
+// domain finding its own: doctor describes one answer and the report is graded by
+// the same one.
+func TestTheSuppliedRuntimeReachesTheDockerChecks(t *testing.T) {
+	staged := container.Runtime{
+		Kind: container.Podman, Bin: "podman", Available: true,
+		Reason: "podman daemon version 5.1.0",
+	}
+	reg := Registry(Deps{Container: func(context.Context) container.Runtime { return staged }})
+
+	selected, err := reg.Select([]string{string(docker.RuntimeID)}, nil)
+	if err != nil {
+		t.Fatalf("selecting %s failed: %v", docker.RuntimeID, err)
+	}
+	res := selected[0].Run(t.Context(), check.Input{Params: map[string]string{}, Progress: check.Discard})
+
+	if res.Summary != staged.Reason {
+		t.Errorf("summary = %q, want the resolved runtime's own reason %q", res.Summary, staged.Reason)
+	}
+}
+
+// Nil Container means detect-and-probe over this Deps' own seams -- so the
+// subprocess it costs goes through the staged runner, and a test never asks the
+// developer's own docker anything.
+func TestTheDefaultRuntimeIsProbedOnceThroughTheStagedSeams(t *testing.T) {
+	fake := cmdrun.NewFake()
+	fake.Stdout("27.1.1\n", "docker", "version", "--format", "{{.Server.Version}}")
+	fake.Stdout("", "docker", "ps", "-a", "--format", "{{json .}}")
+	fake.Stdout("", "docker", "system", "df", "--format", "{{json .}}")
+
+	checks := Checks(Deps{Run: fake, Look: cmdrun.NewFakeLooker("docker")})
+	ran := 0
+	for _, c := range checks {
+		if c.Spec().Domain != "docker" {
+			continue
+		}
+		ran++
+		c.Run(t.Context(), check.Input{Params: map[string]string{}, Progress: check.Discard})
+	}
+	if ran != 3 {
+		t.Fatalf("ran %d docker checks, want 3", ran)
+	}
+
+	// One probe for three checks. Memoised per Checks() call, so the cost of the
+	// domain on a host that has docker is one `docker version`, not one per check.
+	probes := 0
+	for _, call := range fake.Calls() {
+		if strings.Contains(call, "version") {
+			probes++
+		}
+	}
+	if probes != 1 {
+		t.Errorf("the daemon was probed %d times, want 1; calls = %v", probes, fake.Calls())
+	}
+}
+
+// And an invocation that runs no docker check costs nothing at all -- not the
+// probe, not even the PATH lookup. Half a fleet runs no containers, and `--list`
+// and doctor's inventory both build the full set without intending to touch one.
+func TestBuildingTheRegistryProbesNoDaemon(t *testing.T) {
+	fake := cmdrun.NewFake()
+	var looks atomic.Int64
+	look := lookCounter{Looker: cmdrun.NewFakeLooker("docker"), n: &looks}
+
+	if got := len(Registry(Deps{Run: fake, Look: look}).Specs()); got == 0 {
+		t.Fatal("the registry is empty")
+	}
+	if len(fake.Calls()) != 0 {
+		t.Errorf("calls = %v; assembling the registry asked the host something", fake.Calls())
+	}
+	if got := looks.Load(); got != 0 {
+		t.Errorf("PATH was searched %d times to assemble a registry nobody ran", got)
+	}
+}
+
+type lookCounter struct {
+	cmdrun.Looker
+	n *atomic.Int64
+}
+
+func (l lookCounter) Look(bin string) (string, error) {
+	l.n.Add(1)
+	return l.Looker.Look(bin)
 }
