@@ -124,6 +124,10 @@ jobs:
           # override that silently reads as something else.
           internal/config=90
           internal/cli=90
+          # A leaf package of pure arithmetic that decides whether a host pages
+          # anyone. Every bound in it was measured off v1's own severity
+          # functions, and an untested branch is a fleet that stays green.
+          internal/threshold=95
           internal/cmdrun=95
           internal/hostfs=95
           internal/logging=95
