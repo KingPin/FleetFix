@@ -20,6 +20,7 @@ import (
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/disk"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/docker"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/network"
+	"github.com/KingPin/FleetFix/v2/internal/check/builtin/services"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/system"
 	"github.com/KingPin/FleetFix/v2/internal/cmdrun"
 	"github.com/KingPin/FleetFix/v2/internal/container"
@@ -173,6 +174,7 @@ func Checks(deps Deps) []check.Check {
 	out = append(out, disk.Checks(run)...)
 	out = append(out, network.Checks(deps.prober(), deps.probes())...)
 	out = append(out, docker.Checks(run, deps.container())...)
+	out = append(out, services.Checks(run)...)
 	out = append(out, system.Checks(deps.system())...)
 	return out
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/disk"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/docker"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/network"
+	"github.com/KingPin/FleetFix/v2/internal/check/builtin/services"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/system"
 	"github.com/KingPin/FleetFix/v2/internal/cmdrun"
 	"github.com/KingPin/FleetFix/v2/internal/container"
@@ -288,6 +289,45 @@ func TestBuildingTheRegistryProbesNoDaemon(t *testing.T) {
 	}
 	if got := looks.Load(); got != 0 {
 		t.Errorf("PATH was searched %d times to assemble a registry nobody ran", got)
+	}
+}
+
+func TestTheServicesDomainIsRegistered(t *testing.T) {
+	reg := Registry(Deps{})
+
+	registered := map[check.ID]bool{}
+	for _, spec := range reg.Specs() {
+		registered[spec.ID] = true
+	}
+	for _, id := range []check.ID{services.FailedID, services.BootID} {
+		if !registered[id] {
+			t.Errorf("%s is not registered in this build", id)
+		}
+	}
+}
+
+// The domain takes nothing but the runner, so the staged one has to reach it --
+// a collector holding its own cmdrun.New() would pass the registration test
+// above and still ask the developer's own systemd what has failed.
+func TestTheStagedRunnerReachesTheServicesChecks(t *testing.T) {
+	fake := cmdrun.NewFake()
+	fake.Stdout("myapp.service loaded failed failed My Application\n",
+		"systemctl", "list-units", "--state=failed", "--no-legend", "--no-pager", "--plain")
+	fake.Stdout("User=appuser\n", "systemctl", "show", "-p", "User", "myapp.service")
+	reg := Registry(Deps{Run: fake})
+
+	selected, err := reg.Select([]string{string(services.FailedID)}, nil)
+	if err != nil {
+		t.Fatalf("selecting %s failed: %v", services.FailedID, err)
+	}
+	res := selected[0].Run(t.Context(), check.Input{
+		Params:     map[string]string{},
+		Progress:   check.Discard,
+		Thresholds: threshold.Defaults(),
+	})
+
+	if want := "1 failed unit: myapp.service"; res.Summary != want {
+		t.Errorf("summary = %q, want %q -- the staged runner did not reach the check", res.Summary, want)
 	}
 }
 
