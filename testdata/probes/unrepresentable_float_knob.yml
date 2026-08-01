@@ -1,0 +1,21 @@
+# The mirror-image defect on the other side of the type split: an integer literal
+# too wide for a float64 landing on a *float* knob. v1 calls float(value) and
+# raises, measured on CPython 3.14.6:
+#
+#   interval_s: 10**400 -> OverflowError: int too large to convert to float
+#
+# Go carries it to +Inf, which the existing clamp already handles, so interval_s
+# comes out at the 5.0 bound with a clamp warning. Deliberate divergence, recorded
+# in differential/known_divergences.yaml against
+# https://github.com/KingPin/FleetFix/issues/9.
+#
+# Written out as 401 digits rather than 1.0e+400 on purpose. PyYAML 1.1 resolves a
+# float only when the mantissa has a dot AND the exponent carries a sign, so
+# 1.0e+400 is a float that becomes inf without ever calling float() on an int --
+# which is the case probes/wide_numbers.yml already covers, and it agrees. The
+# integer spelling is the one that reaches float(int) and raises.
+#
+# As with nonfinite_int_knob, reading this file raises on neither side; only the
+# #resolved variant diverges.
+ping:
+  interval_s: 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000

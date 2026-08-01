@@ -332,8 +332,13 @@ func TestResolveProbesTakesLadderTargetsQuietly(t *testing.T) {
 // diagnostic tool that will not launch because of one line of YAML is worse than one
 // that pings 900 times.
 //
-// Deliberately not a shared fixture: the differential harness would have to record a
-// crash as the expected answer on the Python side.
+// The harness sees this too: probes/nonfinite_int_knob.yml carries the `.inf` spelling,
+// and py_oracle records a raising case as {"error": {"code": ...}}, so the pair compares
+// as a divergence rather than vanishing. It is justified in
+// differential/known_divergences.yaml against issue #9. Only `.inf` is in the corpus --
+// the other two spellings take the same Go path and differ only in which Python
+// exception comes out, which is a detail of the implementation being replaced -- so all
+// three stay pinned here.
 func TestResolveProbesClampsNonFiniteIntegerKnobsWhereV1Crashes(t *testing.T) {
 	tests := []struct {
 		name string
@@ -365,6 +370,11 @@ func TestResolveProbesClampsNonFiniteIntegerKnobsWhereV1Crashes(t *testing.T) {
 //	ping.interval_s = 10**400 -> OverflowError: int too large to convert to float
 //
 // Go takes it to infinity, which the clamp already handles.
+//
+// Corpus case: probes/unrepresentable_float_knob.yml, justified against issue #9. It
+// spells the magnitude as a 401-digit integer rather than 1.0e+400 on purpose --
+// PyYAML resolves the float literal to inf without ever calling float(int), which is
+// why probes.wide_numbers agrees on both sides and does not cover this.
 func TestResolveProbesClampsUnrepresentableIntegersOnFloatKnobsWhereV1Crashes(t *testing.T) {
 	huge := new(big.Int).Exp(big.NewInt(10), big.NewInt(400), nil)
 	for name, v := range map[string]*big.Int{

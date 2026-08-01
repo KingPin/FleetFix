@@ -68,6 +68,8 @@
 {"id": "probes.junk_scalars", "fn": "config.read_probes_yaml", "fixture": "probes/junk_scalars.yml", "sha256": "faf6105aae86f5092359893ba0006b624c0c3c3e15c4d98fa0e07ba649bff476", "input": "path", "args": {}}
 {"id": "probes.junk_scalars#resolved", "fn": "net.load_probes", "fixture": "probes/junk_scalars.yml", "sha256": "faf6105aae86f5092359893ba0006b624c0c3c3e15c4d98fa0e07ba649bff476", "input": "path", "args": {}}
 {"id": "probes.malformed#resolved", "fn": "net.load_probes", "fixture": "probes/malformed.yml", "sha256": "81c901dd0487071461b58025c24b4bfc4d7d7d8d4d5dc7bdc96672f6dad3b04e", "input": "path", "args": {}}
+{"id": "probes.nonfinite_int_knob", "fn": "config.read_probes_yaml", "fixture": "probes/nonfinite_int_knob.yml", "sha256": "ae62881140268267907591d50c73f5fd1484701ef4299017dfc62c89564d5378", "input": "path", "args": {}}
+{"id": "probes.nonfinite_int_knob#resolved", "fn": "net.load_probes", "fixture": "probes/nonfinite_int_knob.yml", "sha256": "ae62881140268267907591d50c73f5fd1484701ef4299017dfc62c89564d5378", "input": "path", "args": {}}
 {"id": "probes.null_sections", "fn": "config.read_probes_yaml", "fixture": "probes/null_sections.yml", "sha256": "42dad19cac23436f00acea3af20994e380da2b914fd349ff98114d5bc4cd0c87", "input": "path", "args": {}}
 {"id": "probes.null_sections#resolved", "fn": "net.load_probes", "fixture": "probes/null_sections.yml", "sha256": "42dad19cac23436f00acea3af20994e380da2b914fd349ff98114d5bc4cd0c87", "input": "path", "args": {}}
 {"id": "probes.odd_targets", "fn": "config.read_probes_yaml", "fixture": "probes/odd_targets.yml", "sha256": "e6b40354cf093808e28cfb2e25889aa4bfd71ee0251cd64a9ec3410b32b9e3f9", "input": "path", "args": {}}
@@ -75,6 +77,8 @@
 {"id": "probes.partial", "fn": "config.read_probes_yaml", "fixture": "probes/partial.yml", "sha256": "6d3995d1a33bf1decc60cb5a7b929f6e564a8da3a86979d442ea5bb68e6d041a", "input": "path", "args": {}}
 {"id": "probes.partial#resolved", "fn": "net.load_probes", "fixture": "probes/partial.yml", "sha256": "6d3995d1a33bf1decc60cb5a7b929f6e564a8da3a86979d442ea5bb68e6d041a", "input": "path", "args": {}}
 {"id": "probes.top_level_list#resolved", "fn": "net.load_probes", "fixture": "probes/top_level_list.yml", "sha256": "164b8f328ebc9dd32ce8a36f32cb682aa6b8611747534ca63369715a2f148456", "input": "path", "args": {}}
+{"id": "probes.unrepresentable_float_knob", "fn": "config.read_probes_yaml", "fixture": "probes/unrepresentable_float_knob.yml", "sha256": "506b1bbc1d5ae786a1bac9847e5891054502f1435f995a0980b9f1675a0a7ba8", "input": "path", "args": {}}
+{"id": "probes.unrepresentable_float_knob#resolved", "fn": "net.load_probes", "fixture": "probes/unrepresentable_float_knob.yml", "sha256": "506b1bbc1d5ae786a1bac9847e5891054502f1435f995a0980b9f1675a0a7ba8", "input": "path", "args": {}}
 {"id": "probes.wide_numbers", "fn": "config.read_probes_yaml", "fixture": "probes/wide_numbers.yml", "sha256": "63b944286eeb9f7758a0811140981b250e977a6e182e8413c19ec12e4cd48dac", "input": "path", "args": {}}
 {"id": "probes.wide_numbers#resolved", "fn": "net.load_probes", "fixture": "probes/wide_numbers.yml", "sha256": "63b944286eeb9f7758a0811140981b250e977a6e182e8413c19ec12e4cd48dac", "input": "path", "args": {}}
 {"id": "proc.loadavg", "fn": "system.read_loadavg", "fixture": "proc/loadavg.txt", "sha256": "497ec2b377f3c3035c2b36f05cd4e05c090083b8a530dbf5e190ba0421c95814", "input": "path", "args": {}}

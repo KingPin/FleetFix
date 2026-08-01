@@ -15,9 +15,13 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ORACLE_PATH = REPO_ROOT / "tools" / "oracle" / "py_oracle.py"
+KNOWN_DIVERGENCES = yaml.safe_load(
+    (REPO_ROOT / "differential" / "known_divergences.yaml").read_text(encoding="utf-8")
+)
 
 
 def load_oracle() -> ModuleType:
@@ -56,13 +60,25 @@ def test_no_dispatch_entry_is_unused() -> None:
     assert not (set(ORACLE.DISPATCH) - named), f"unused: {sorted(set(ORACLE.DISPATCH) - named)}"
 
 
-def test_run_produces_one_record_per_case_and_no_oracle_errors(tmp_path: Path) -> None:
+def test_run_produces_one_record_per_case_and_only_documented_errors(tmp_path: Path) -> None:
+    """An error record is a claim about v1, so it has to be one somebody made.
+
+    The oracle turns an exception into ``{"error": {"code": ...}}`` rather than
+    crashing, which is what lets a case where v1 raises and Go answers compare as a
+    divergence instead of vanishing. That same swallow would hide a broken adapter,
+    so the allowance is exactly the ids ``known_divergences.yaml`` justifies -- a
+    new error either has an argued entry beside it or turns this red.
+    """
     out = tmp_path / "py.jsonl"
     assert ORACLE.main(["--out", str(out)]) == 0
     records = [json.loads(line) for line in out.read_text(encoding="utf-8").splitlines()]
     assert [r["id"] for r in records] == [c["id"] for c in CASES]
     failed = {r["id"]: r["error"] for r in records if "error" in r}
-    assert not failed, f"cases the oracle could not run: {failed}"
+    known = {str(d["id"]) for d in (KNOWN_DIVERGENCES.get("divergences") or [])}
+    assert not (set(failed) - known), (
+        f"cases the oracle could not run, with no divergence entry: "
+        f"{ {k: v for k, v in failed.items() if k not in known} }"
+    )
 
 
 def test_two_runs_of_the_same_corpus_are_byte_identical(tmp_path: Path) -> None:
