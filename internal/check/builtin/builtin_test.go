@@ -10,6 +10,7 @@ import (
 	"github.com/KingPin/FleetFix/v2/internal/check"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/disk"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/docker"
+	"github.com/KingPin/FleetFix/v2/internal/check/builtin/logsqueeze"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/network"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/services"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/system"
@@ -397,6 +398,59 @@ func TestTheSharedRunnerReachesTheDefaultSystemSource(t *testing.T) {
 	}
 	if src.NotifierPath != system.DefaultNotifierPath {
 		t.Errorf("the default system source reads the notifier from %q", src.NotifierPath)
+	}
+}
+
+func TestTheLogsqueezeDomainIsRegistered(t *testing.T) {
+	reg := Registry(Deps{})
+
+	registered := map[check.ID]bool{}
+	for _, spec := range reg.Specs() {
+		registered[spec.ID] = true
+	}
+	if !registered[logsqueeze.CandidatesID] {
+		t.Errorf("%s is not registered in this build", logsqueeze.CandidatesID)
+	}
+}
+
+// The staged tree reaches the check, which is the property that keeps a unit
+// test off the developer's own /var/log. A collector holding its own
+// os.DirFS("/var/log") would pass the registration test above and still walk
+// this machine.
+func TestTheStagedLogTreeReachesTheCheck(t *testing.T) {
+	staged := logsqueeze.Source{
+		Root:     "/var/log",
+		FS:       fstest.MapFS{"nginx/access.log": &fstest.MapFile{Data: make([]byte, 3000)}},
+		MinBytes: 1000,
+	}
+	reg := Registry(Deps{Logs: &staged})
+
+	selected, err := reg.Select([]string{string(logsqueeze.CandidatesID)}, nil)
+	if err != nil {
+		t.Fatalf("selecting %s failed: %v", logsqueeze.CandidatesID, err)
+	}
+	res := selected[0].Run(t.Context(), check.Input{
+		Params:     map[string]string{},
+		Progress:   check.Discard,
+		Thresholds: threshold.Defaults(),
+	})
+
+	want := "1 uncompressed log holding 2.9 KB, largest is /var/log/nginx/access.log at 2.9 KB"
+	if res.Summary != want {
+		t.Errorf("summary = %q, want %q -- the staged tree did not reach the check", res.Summary, want)
+	}
+}
+
+// Nil Logs is the live host at v1's floor, rather than the zero Source's
+// filesystem-less walk.
+func TestTheDefaultLogSourceIsTheLiveVarLog(t *testing.T) {
+	src := Deps{}.logs()
+
+	if src.Root != logsqueeze.DefaultRoot {
+		t.Errorf("root = %q, want %q", src.Root, logsqueeze.DefaultRoot)
+	}
+	if src.MinBytes != logsqueeze.DefaultMinBytes {
+		t.Errorf("min = %d, want %d", src.MinBytes, logsqueeze.DefaultMinBytes)
 	}
 }
 

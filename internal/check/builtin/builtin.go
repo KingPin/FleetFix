@@ -19,6 +19,7 @@ import (
 	"github.com/KingPin/FleetFix/v2/internal/check"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/disk"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/docker"
+	"github.com/KingPin/FleetFix/v2/internal/check/builtin/logsqueeze"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/network"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/services"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/system"
@@ -73,6 +74,17 @@ type Deps struct {
 	// and has no CPU count, which is not "the live host" but a Source that fails
 	// every check it is handed to.
 	System *system.Source
+
+	// Logs is where the log-reclaim domain walks. Nil means the live /var/log at
+	// v1's ten-mebibyte floor.
+	//
+	// A value would do here -- logsqueeze.Source is written so that its zero value
+	// is the live default, precisely because a struct literal that forgot a field
+	// must not turn into a walk reporting every empty rotated log on the host. It
+	// is a pointer anyway, to match System and Probes: a reader of this struct
+	// should not have to remember which of the seams treat their zero as "nobody
+	// said" and which as "nothing".
+	Logs *logsqueeze.Source
 }
 
 func (d Deps) runner() cmdrun.Runner {
@@ -161,6 +173,18 @@ func (d Deps) system() system.Source {
 	return src
 }
 
+// logs is the log-reclaim domain's source, defaulted to the live /var/log.
+//
+// Nothing to thread through from Run: the walk is syscalls rather than a
+// subprocess, so unlike system there is no seam here that the caller's runner
+// could stand in for.
+func (d Deps) logs() logsqueeze.Source {
+	if d.Logs != nil {
+		return *d.Logs
+	}
+	return logsqueeze.New()
+}
+
 // Checks returns every check this build ships, grouped by domain.
 //
 // The order is the registration order and therefore --list's order. It is not the
@@ -176,6 +200,7 @@ func Checks(deps Deps) []check.Check {
 	out = append(out, docker.Checks(run, deps.container())...)
 	out = append(out, services.Checks(run)...)
 	out = append(out, system.Checks(deps.system())...)
+	out = append(out, logsqueeze.Checks(deps.logs())...)
 	return out
 }
 
