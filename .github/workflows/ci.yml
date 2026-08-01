@@ -101,7 +101,13 @@ jobs:
       - name: Coverage floors
         run: |
           set -eu
-          floors="
+          # A quoted heredoc, not floors="...", because the list carries prose and
+          # prose carries quotes. The pytime note below ends in the words "never
+          # started" -- inside a double-quoted assignment that first quote closed
+          # the string, and the shell went on to run the rest of the list as a
+          # command (exit 127, every floor unchecked). <<'EOF' has no metacharacters
+          # at all, so a comment can say anything.
+          floors=$(cat <<'EOF'
           internal/core=85
           internal/pytext=95
           # Same class as pytext, and for the same reason: it is Python's
@@ -127,7 +133,8 @@ jobs:
           # parsers match Python -- a comparator with a hole in it passes
           # everything and says so confidently.
           tools/ffdiff=85
-          "
+          EOF
+          )
           # One pass over the profile, weighted over statements, grouped by package
           # directory. Read from the profile rather than from `go tool cover -func`:
           # that command prints a percentage per function, and averaging those would
@@ -159,7 +166,17 @@ jobs:
           # the two real ones, and a comment word containing '=' would have become
           # a phantom floor on a package that does not exist.
           entries="$(printf '%s\n' "$floors" | sed -e 's/#.*$//' -e 's/[[:space:]]//g' -e '/^$/d')"
+          if [ -z "$entries" ]; then
+            echo "::error::the floor list is empty; no coverage floor was enforced"
+            exit 1
+          fi
           fail=0
+          # A floor naming a package that does not exist is only a notice, so that a
+          # floor can be written before the package is. That tolerance is also the
+          # hole: if every floor stopped matching -- the list mangled, or the awk
+          # output changing shape -- the job would print notices and pass. Counting
+          # the floors that actually got enforced closes it.
+          enforced=0
           for entry in $entries; do
             pkg="${entry%=*}"
             min="${entry#*=}"
@@ -198,8 +215,14 @@ jobs:
             done < per-package-coverage.txt
             if [ "$matched" -eq 0 ]; then
               echo "::notice::no coverage rows under ${pkg}; floor of ${min}% not enforced (no such package yet)"
+            else
+              enforced=$((enforced + 1))
             fi
           done
+          if [ "$enforced" -eq 0 ]; then
+            echo "::error::no floor matched any package; the coverage gate checked nothing"
+            fail=1
+          fi
           exit "$fail"
 
   fuzz:
