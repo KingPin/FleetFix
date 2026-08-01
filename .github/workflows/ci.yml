@@ -137,6 +137,11 @@ jobs:
           # that decides a key, a type or an ordering is worth the floor.
           internal/report=95
           internal/cmdrun=95
+          # Six strings that name the machine every other record is filed under.
+          # Not 100 only because uname(2) cannot fail on Linux, and a function
+          # pointer to cover an unreachable syscall error would be more to get
+          # wrong than the branch is worth.
+          internal/hostinfo=95
           internal/hostfs=95
           internal/logging=95
           internal/release=95
