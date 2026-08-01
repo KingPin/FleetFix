@@ -131,6 +131,53 @@ func TestBootDataCarriesEveryEntry(t *testing.T) {
 	}
 }
 
+// systemd prints microsecond durations for socket units, and neither v1's parser
+// nor this port reads a "us" suffix -- so those lines are dropped. That is the
+// parser's ported behaviour, and this layer's job is not to claim the host has
+// only the units that survived it: on the machine this was written on, blame
+// printed 110 lines and the parser kept 76.
+func TestTimingsThisBuildCannotParseAreCountedAndDeclared(t *testing.T) {
+	res, steps := run(t, BootID, blameText(strings.Join([]string{
+		"1min 11.908s plocate-updatedb.service",
+		"      5.979s NetworkManager-wait-online.service",
+		"       559ms NetworkManager.service",
+		"        24us lvm2-lvmpolld.socket",
+		"        11us systemd-rfkill.socket",
+	}, "\n")))
+
+	// Five units timed, not the three that parsed.
+	if want := "5 units timed, slowest is plocate-updatedb.service at 1min 11.908s"; res.Summary != want {
+		t.Errorf("summary = %q, want %q", res.Summary, want)
+	}
+	if want := "2 of 5 timings named no duration this build understands"; steps[0].Text != want {
+		t.Errorf("first step = %q, want %q", steps[0].Text, want)
+	}
+	// ok, not warn: every line it costs is a sub-millisecond socket, which cannot
+	// be what made a boot slow.
+	if steps[0].Status != check.StatusOK {
+		t.Errorf("the note has status %s, want ok", steps[0].Status)
+	}
+	// And the readings that matter are unaffected -- the slowest and the outliers
+	// both come from what parsed.
+	if got := metricNamed(t, res, SlowestMetric).Value; got != 71908 {
+		t.Errorf("%s = %v", SlowestMetric, got)
+	}
+	if got := metricNamed(t, res, SlowUnitsMetric).Value; got != 2 {
+		t.Errorf("%s = %v, want the two units over 5s", SlowUnitsMetric, got)
+	}
+}
+
+// And a host whose every line parsed says nothing about it.
+func TestNoNoteWhenEveryTimingParsed(t *testing.T) {
+	_, steps := run(t, BootID, blaming(t, "systemd_analyze/blame_classic.txt"))
+
+	for _, s := range steps {
+		if strings.Contains(s.Text, "this build understands") {
+			t.Errorf("step = %q, want no note when nothing was dropped", s.Text)
+		}
+	}
+}
+
 // A host with more slow units than steps[] should carry says how many it left
 // out. Truncating quietly would read as "these are all of them".
 func TestTheStepCapNamesWhatItLeftOut(t *testing.T) {

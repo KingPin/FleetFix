@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/KingPin/FleetFix/v2/internal/check"
 	"github.com/KingPin/FleetFix/v2/internal/cmdrun"
@@ -81,6 +82,24 @@ func (c boot) Run(ctx context.Context, in check.Input) check.Result {
 	slowest := entries[0]
 	slow := outliers(entries)
 
+	// systemd prints microsecond durations for socket units -- "11us
+	// systemd-rfkill.socket" -- and neither v1's parser nor this port reads a "us"
+	// suffix, so those lines are dropped. That is the parser's ported behaviour and
+	// stays; what does not stay is a summary claiming this host has 76 units when
+	// systemd printed 110. The count is what systemd reported and the gap is
+	// stated, because a reader who runs the command themselves will find it.
+	reported := max(countLines(out.Stdout), len(entries))
+	if missed := reported - len(entries); missed > 0 {
+		// ok, not warn. Every line this costs is a sub-millisecond socket, which
+		// cannot be what made a boot slow -- the note is about the reading's
+		// completeness, not about the host.
+		in.Progress.Emit(check.Event{
+			Text: fmt.Sprintf("%d of %d timings named no duration this build understands",
+				missed, reported),
+			Status: check.StatusOK,
+		})
+	}
+
 	res := check.Result{
 		Status: check.StatusOK,
 		Data:   entries,
@@ -93,7 +112,7 @@ func (c boot) Run(ctx context.Context, in check.Input) check.Result {
 				fmt.Sprintf("units that took %dms or more to start", OutlierMS)),
 		},
 		Summary: fmt.Sprintf("%s timed, slowest is %s at %s",
-			plural(len(entries), "unit"), slowest.Unit, duration(slowest.DurationMS)),
+			plural(reported, "unit"), slowest.Unit, duration(slowest.DurationMS)),
 	}
 
 	// No total. Summing these would not be the boot time -- systemd starts units in
@@ -117,6 +136,21 @@ func (c boot) Run(ctx context.Context, in check.Input) check.Result {
 		})
 	}
 	return res
+}
+
+// countLines is how many timings systemd printed.
+//
+// Its own count rather than the parser's, so the two can be compared. Blank lines
+// do not count; a line the parser rejected does, because on a real host every
+// line systemd-analyze prints is a unit.
+func countLines(s string) int {
+	n := 0
+	for _, line := range strings.Split(s, "\n") {
+		if strings.TrimSpace(line) != "" {
+			n++
+		}
+	}
+	return n
 }
 
 // outliers are the units worth a line, in the order systemd reported them.
