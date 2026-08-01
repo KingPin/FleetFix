@@ -60,13 +60,25 @@ func ReadPerfYAML(path string) (map[string]any, error) { return readYAMLMapping(
 func ReadOtelYAML(path string) (map[string]any, error) { return readYAMLMapping(path) }
 
 func readYAMLMapping(path string) (map[string]any, error) {
+	m, _, err := readYAMLMappingSource(path)
+	return m, err
+}
+
+// readYAMLMappingSource is readYAMLMapping plus whether the file was there.
+//
+// The layered loader needs that third answer and the v1-compatible readers must
+// not grow it: a file that is absent and a file that holds an empty mapping are
+// the same thing to a v1 call site, but to a merge they are not. An absent layer
+// contributes nothing; a present but empty one is an operator saying "nothing
+// here", which is worth reporting as in-use rather than as missing.
+func readYAMLMappingSource(path string) (values map[string]any, exists bool, err error) {
 	data, err := os.ReadFile(path) //nolint:gosec // the path is the argument; naming a file is the whole call
 	if err != nil {
 		// v1 swallows the read error without a warning, and that is right for the
 		// common case: an absent per-host override is normal, not a problem. It
 		// also means an unreadable file is silent, which is why `doctor` reports
 		// config-file readability separately instead of inferring it from here.
-		return map[string]any{}, nil //nolint:nilerr // v1 swallows this; the returned error is reserved for a parse failure
+		return map[string]any{}, false, nil //nolint:nilerr // v1 swallows this; the returned error is reserved for a parse failure
 	}
 	m, err := parseYAMLMapping(data)
 	if err != nil {
@@ -74,7 +86,7 @@ func readYAMLMapping(path string) (map[string]any, error) {
 		// which is the one thing they need told -- silently running on defaults is
 		// how a threshold override gets debugged for an hour.
 		slog.Warn("failed to parse config file", "path", path, "error", err)
-		return m, err
+		return m, true, err
 	}
-	return m, nil
+	return m, true, nil
 }
