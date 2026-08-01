@@ -146,6 +146,11 @@ jobs:
           # here is a sudo action recorded against root instead of the login that
           # asked for it, which is the one thing an audit trail cannot get wrong.
           internal/identity=95
+          # The gate in front of every Tier 2 action. v1 got this wrong by
+          # deriving it from "is the sudo binary installed", and an untested
+          # branch here is either a destructive action offered to someone who
+          # cannot run it or one withheld from someone who can.
+          internal/privilege=95
           internal/hostfs=95
           internal/logging=95
           internal/release=95
