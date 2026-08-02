@@ -15,6 +15,7 @@ import (
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/docker"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/logsqueeze"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/network"
+	"github.com/KingPin/FleetFix/v2/internal/check/builtin/procs"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/services"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/storage"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/system"
@@ -530,6 +531,85 @@ func TestTheOperatorsRootReachesTheStaleCheck(t *testing.T) {
 	want := "1 stale file holding 2.0 KB under " + root + ", largest is " + dump + " at 2.0 KB"
 	if res.Summary != want {
 		t.Errorf("summary = %q, want %q -- the parameter did not reach the check", res.Summary, want)
+	}
+}
+
+func TestTheProcsDomainIsRegistered(t *testing.T) {
+	reg := Registry(Deps{})
+
+	registered := map[check.ID]bool{}
+	for _, spec := range reg.Specs() {
+		registered[spec.ID] = true
+	}
+	if !registered[procs.TopID] {
+		t.Errorf("%s is not registered in this build", procs.TopID)
+	}
+}
+
+// The storage checks' opposite: procs.top takes a parameter and still runs by
+// default, because the parameter has a default and "which processes are the big
+// ones" has an answer on every host. Asserted here rather than in the domain's
+// spec test because what is at stake is the default set, which only exists once
+// the registry is assembled.
+func TestTheProcsCheckRunsByDefault(t *testing.T) {
+	reg := Registry(Deps{})
+
+	byDefault, err := reg.Select(nil, nil)
+	if err != nil {
+		t.Fatalf("selecting the default set failed: %v", err)
+	}
+	for _, c := range byDefault {
+		if c.Spec().ID == procs.TopID {
+			return
+		}
+	}
+	t.Errorf("%s is out of the default set", procs.TopID)
+}
+
+// The staged /proc reaches the check, which is what keeps this test off the
+// developer's own process table. A collector holding its own os.DirFS("/proc")
+// would pass the registration test above and rank this machine.
+func TestTheStagedProcTreeReachesTheCheck(t *testing.T) {
+	stat := "1 (systemd) S " + strings.Repeat("0 ", 10) + "0 0 " + strings.TrimSpace(strings.Repeat("0 ", 8))
+	staged := procs.Source{
+		Dir: "/proc",
+		FS: fstest.MapFS{
+			"1/stat":    &fstest.MapFile{Data: []byte(stat + "\n")},
+			"1/statm":   &fstest.MapFile{Data: []byte("0 100 0 0 0 0 0\n")},
+			"1/cmdline": &fstest.MapFile{Data: []byte("/sbin/init\x00")},
+		},
+		PageSize:       4096,
+		SampleInterval: time.Millisecond,
+		Owner:          func(int64) *string { return nil },
+	}
+	reg := Registry(Deps{Procs: &staged})
+
+	selected, err := reg.Select([]string{string(procs.TopID)}, nil)
+	if err != nil {
+		t.Fatalf("selecting %s failed: %v", procs.TopID, err)
+	}
+	res := selected[0].Run(t.Context(), check.Input{
+		Params:     map[string]string{},
+		Progress:   check.Discard,
+		Thresholds: threshold.Defaults(),
+	})
+
+	want := "1 process; largest is systemd at 400.0 KB, busiest is systemd at 0.0%"
+	if res.Summary != want {
+		t.Errorf("summary = %q, want %q -- the staged tree did not reach the check", res.Summary, want)
+	}
+}
+
+// Nil Procs is the live /proc, rather than the zero Source's walk through a nil
+// filesystem.
+func TestTheDefaultProcsSourceIsTheLiveProc(t *testing.T) {
+	src := Deps{}.procs()
+
+	if src.Dir != procs.DefaultProcDir {
+		t.Errorf("dir = %q, want %q", src.Dir, procs.DefaultProcDir)
+	}
+	if src.FS != nil {
+		t.Error("the default procs source pinned a filesystem; the live host's is os.DirFS")
 	}
 }
 

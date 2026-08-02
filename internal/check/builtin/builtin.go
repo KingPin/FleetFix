@@ -21,6 +21,7 @@ import (
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/docker"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/logsqueeze"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/network"
+	"github.com/KingPin/FleetFix/v2/internal/check/builtin/procs"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/services"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/storage"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin/system"
@@ -86,6 +87,17 @@ type Deps struct {
 	// should not have to remember which of the seams treat their zero as "nobody
 	// said" and which as "nothing".
 	Logs *logsqueeze.Source
+
+	// Procs is the process-ranking domain's read seams: where /proc is, the page
+	// size and clock tick the arithmetic uses, the CPU count the percentage is
+	// divided by, the sample interval, the clock it is measured with, and the
+	// owner lookup. Nil means the live /proc.
+	//
+	// A pointer for System's reason and more sharply: the zero Source reads
+	// through a nil filesystem, so a struct literal that set one field and left
+	// the rest would not be "the live host with one thing changed" but a walk
+	// that finds nothing.
+	Procs *procs.Source
 
 	// The storage domain has no field here, and that is not an omission. Both of
 	// its checks are handed their path by the operator at run time and read it with
@@ -192,6 +204,17 @@ func (d Deps) logs() logsqueeze.Source {
 	return logsqueeze.New()
 }
 
+// procs is the process-ranking domain's source, defaulted to the live /proc.
+//
+// Nothing to thread through from Run, for logs' reason: the walk is syscalls
+// rather than a subprocess.
+func (d Deps) procs() procs.Source {
+	if d.Procs != nil {
+		return *d.Procs
+	}
+	return procs.New()
+}
+
 // Checks returns every check this build ships, grouped by domain.
 //
 // The order is the registration order and therefore --list's order. It is not the
@@ -209,6 +232,7 @@ func Checks(deps Deps) []check.Check {
 	out = append(out, system.Checks(deps.system())...)
 	out = append(out, logsqueeze.Checks(deps.logs())...)
 	out = append(out, storage.Checks()...)
+	out = append(out, procs.Checks(deps.procs())...)
 	return out
 }
 
