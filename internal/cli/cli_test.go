@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -96,6 +97,8 @@ func TestUsageErrorsExitUnknownAndWriteNothingToStdout(t *testing.T) {
 		{"no arguments", nil, "no interactive UI"},
 		{"bad log level", []string{"--log-level", "verbose", "check"}, "unknown level"},
 		{"check with a stray argument", []string{"check", "extra"}, "unexpected argument"},
+		{"doctor with a stray argument", []string{"doctor", "--json"}, "unexpected argument"},
+		{"doctor with a stray word", []string{"doctor", "network"}, "unexpected argument"},
 		{"check with json disabled", []string{"check", "--json=false"}, "only output mode"},
 		{"check with an unknown flag", []string{"check", "--prom"}, "prom"},
 	}
@@ -634,6 +637,201 @@ func TestCheckHelpGoesToStdout(t *testing.T) {
 	}
 }
 
+// Doctor reaches its front door and describes this machine, not a fixture. The
+// sections are asserted by heading rather than by content, because everything
+// under them is whatever this host happens to be -- doctorcmd's own suite pins
+// the shape against a staged host.
+func TestDoctorDescribesThisHost(t *testing.T) {
+	stdout, stderr, code := run(t, "doctor")
+
+	// Zero even on a host with no sudo, no docker and no config: doctor describes,
+	// it does not grade. An exit code here would have to rank an ordinary host's
+	// ordinary gaps, and any ranking would be wrong for somebody's fleet.
+	if code != exitcode.OK {
+		t.Errorf("exit code = %d, want %d: doctor describes rather than grades", code, exitcode.OK)
+	}
+	if stderr != "" {
+		t.Errorf("stderr = %q, want empty", stderr)
+	}
+	if !strings.HasPrefix(stdout, "fleetfix "+version.Version()+"\n") {
+		t.Errorf("a pasted doctor output does not identify its build: %q", stdout)
+	}
+	for _, heading := range []string{
+		"\nHost\n", "\nOperator\n", "\nPrivilege\n", "\nContainer runtime\n",
+		"\nConfiguration\n", "\nThresholds\n", "\nExternal programs\n", "\nChecks\n",
+	} {
+		if !strings.Contains(stdout, heading) {
+			t.Errorf("no %q section:\n%s", strings.TrimSpace(heading), stdout)
+		}
+	}
+}
+
+// M3's exit criterion, asserted at the only level it can be: both front doors
+// running against the same machine, one after the other. Doctor's whole value is
+// that it reports what the collectors graded by, so a number it prints that the
+// report disagrees with is worse than no doctor at all -- it is a support call
+// that ends in "but doctor says".
+//
+// The privilege verdict is the field to pin. It costs a subprocess, it decides
+// whether Tier 2 checks run at all, and it is the one an operator disputes.
+func TestDoctorAndCheckAgreeAboutThisHost(t *testing.T) {
+	doctor, _, _ := run(t, "doctor")
+	reported, _, _ := run(t, "check", "--json", "--check", noMatch)
+	rep := decode(t, reported)
+
+	priv := section(t, doctor, "Privilege")
+	if !contains(priv, fmt.Sprintf("%d", rep.Privilege.UID)) {
+		t.Errorf("doctor's uid is not the report's %d: %v", rep.Privilege.UID, priv)
+	}
+	if !contains(priv, rep.Privilege.Reason) {
+		t.Errorf("doctor's tier 2 reason is not the report's %q: %v", rep.Privilege.Reason, priv)
+	}
+	want := "unavailable"
+	if rep.Privilege.CanTier2 {
+		want = "available"
+	}
+	if !contains(priv, want) {
+		t.Errorf("doctor says tier 2 is not %q, and the report does: %v", want, priv)
+	}
+
+	host := section(t, doctor, "Host")
+	for _, field := range []string{rep.Host.Hostname, rep.Host.Kernel, rep.Host.Arch} {
+		if field != "" && !contains(host, field) {
+			t.Errorf("doctor does not report the host's %q: %v", field, host)
+		}
+	}
+
+	// A warning the report carries and doctor does not is the whole failure mode:
+	// the run fell back to defaults, and the operator asked doctor why.
+	warnings := section(t, doctor, "Configuration warnings")
+	for _, w := range rep.ConfigWarnings {
+		if !contains(warnings, w) {
+			t.Errorf("the report warns %q and doctor does not: %v", w, warnings)
+		}
+	}
+}
+
+// The container runtime is the field the report does not carry in its envelope,
+// so the only place the two commands can be compared on it is the docker domain's
+// own result -- and that is the comparison worth making, because "docker reports
+// unavailable on a host running containers" is the support call doctor exists to
+// answer. Both strings come from the one memoised probe; a divergence here means
+// two resolvers.
+//
+// Self-skipping rather than gated on a build tag: a runner with no docker is a
+// perfectly good host, and this assertion has nothing to say about it.
+func TestDoctorAndCheckAgreeAboutTheContainerRuntime(t *testing.T) {
+	rep := decode(t, mustRun(t, "check", "--json", "--check", "docker.runtime"))
+	if len(rep.Checks) != 1 {
+		t.Fatalf("selecting docker.runtime produced %d results", len(rep.Checks))
+	}
+	got := rep.Checks[0]
+	if got.Status == check.StatusUnavailable || got.Status == check.StatusSkipped {
+		t.Skipf("no container runtime on this host: %s", got.Summary)
+	}
+
+	body := section(t, mustRun(t, "doctor"), "Container runtime")
+	if !contains(body, got.Summary) {
+		t.Errorf("the docker check graded %q and doctor detected: %v", got.Summary, body)
+	}
+}
+
+// The direct guard on registryFor. Two Deps literals would agree until the day
+// one of them gained a field, and then doctor would describe a registry the
+// checks were not built from -- with nothing failing, because both would still
+// compile and run. These two numbers are what would diverge.
+func TestDoctorCountsTheRegistryTheChecksWereBuiltFrom(t *testing.T) {
+	listed, _, _ := run(t, "check", "--list")
+	var listing checkcmd.Listing
+	if err := json.Unmarshal([]byte(listed), &listing); err != nil {
+		t.Fatalf("the listing is not a single JSON document: %v\n%s", err, listed)
+	}
+	if len(listing.Checks) == 0 {
+		t.Fatal("the listing is empty; there is nothing for doctor to disagree with")
+	}
+	domains := map[string]bool{}
+	for _, c := range listing.Checks {
+		domains[c.Domain] = true
+	}
+
+	body := section(t, mustRun(t, "doctor"), "Checks")
+	if want := fmt.Sprintf("%d in %d domains", len(listing.Checks), len(domains)); !contains(body, want) {
+		t.Errorf("doctor does not report %q: %v", want, body)
+	}
+
+	// And the default count against a real default run, so the two front doors
+	// have to agree about which checks a bare `fleetfix check` selects and not
+	// merely about how many exist.
+	ran := decode(t, mustRun(t, "check", "--json"))
+	if want := fmt.Sprintf("default run     %d", len(ran.Checks)); !contains(body, want) {
+		t.Errorf("doctor does not report %q; the default run had %d: %v", want, len(ran.Checks), body)
+	}
+}
+
+// mustRun is for the runs whose output is a means rather than the assertion: a
+// default `check --json` grades this host, so its exit code is whatever the host
+// deserves and is not this test's business.
+func mustRun(t *testing.T, argv ...string) string {
+	t.Helper()
+	stdout, stderr, _ := run(t, argv...)
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	return stdout
+}
+
+// section returns the lines beneath a doctor heading, so an assertion about the
+// privilege verdict cannot be satisfied by a word that appeared in a config path.
+func section(t *testing.T, out, title string) []string {
+	t.Helper()
+	lines := strings.Split(out, "\n")
+	for i, line := range lines {
+		if line != title {
+			continue
+		}
+		var body []string
+		for _, line := range lines[i+1:] {
+			if !strings.HasPrefix(line, "  ") {
+				return body
+			}
+			body = append(body, line)
+		}
+		return body
+	}
+	t.Fatalf("no %q section in:\n%s", title, out)
+	return nil
+}
+
+func contains(lines []string, substr string) bool {
+	for _, line := range lines {
+		if strings.Contains(line, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+// The same contract check honours, for the same reason: the one stream doctor
+// must not put a diagnostic on is the one it writes to.
+func TestAnUnwritableStdoutIsReportedOnStderrByDoctorToo(t *testing.T) {
+	var stderr strings.Builder
+	code := Main([]string{"doctor"}, failingWriter{err: errors.New("broken pipe")}, &stderr)
+
+	if code != exitcode.Unknown {
+		t.Errorf("exit code = %d, want %d", code, exitcode.Unknown)
+	}
+	if !strings.Contains(stderr.String(), "broken pipe") {
+		t.Errorf("stderr does not report the failed write: %q", stderr.String())
+	}
+}
+
+func TestUsageNamesTheDoctorCommand(t *testing.T) {
+	stdout, _, _ := run(t, "--help")
+	if !strings.Contains(stdout, "doctor") {
+		t.Errorf("usage does not mention doctor, so nobody will find it: %q", stdout)
+	}
+}
+
 // TestNothingInThisPackageNamesTheProcessStreams keeps stream ownership at
 // cmd/fleetfix. The moment a subcommand reaches for os.Stdout directly, the
 // end-to-end assertions above stop being able to see what a consumer receives --
@@ -769,6 +967,25 @@ func TestTheRealBinaryHonoursTheContract(t *testing.T) {
 		}
 		if rep.Error == "" {
 			t.Error("the document does not say why nothing ran")
+		}
+	})
+
+	t.Run("doctor exits zero and describes the host", func(t *testing.T) {
+		res, err := runner.Run(ctx, bin, "doctor")
+		if err != nil {
+			t.Fatalf("running the binary failed: %v", err)
+		}
+		// The line no in-process test can cover for this command. Doctor returning
+		// exitcode.OK and the process exiting non-zero would make it unusable in the
+		// one place it is most wanted: pasted into a ticket from a script.
+		if res.ExitCode != exitcode.OK {
+			t.Errorf("exit status = %d, want %d", res.ExitCode, exitcode.OK)
+		}
+		if res.Stderr != "" {
+			t.Errorf("stderr = %q, want empty", res.Stderr)
+		}
+		if !strings.Contains(res.Stdout, "\nChecks\n") {
+			t.Errorf("the shipped binary's doctor describes no checks:\n%s", res.Stdout)
 		}
 	})
 

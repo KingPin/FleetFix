@@ -19,8 +19,10 @@ import (
 	"io"
 	"strings"
 
+	"github.com/KingPin/FleetFix/v2/internal/check"
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin"
 	"github.com/KingPin/FleetFix/v2/internal/cli/checkcmd"
+	"github.com/KingPin/FleetFix/v2/internal/cli/doctorcmd"
 	"github.com/KingPin/FleetFix/v2/internal/exitcode"
 	"github.com/KingPin/FleetFix/v2/internal/logging"
 	"github.com/KingPin/FleetFix/v2/internal/resolve"
@@ -109,6 +111,8 @@ func Main(argv []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "check":
 		return runCheck(args[1:], stdout, stderr)
+	case "doctor":
+		return runDoctor(args[1:], stdout, stderr, log.Destination)
 	default:
 		fmt.Fprintf(stderr, "fleetfix: unknown command %q\n", args[0])
 		usage(stderr, fs)
@@ -222,12 +226,7 @@ func runCheck(argv []string, stdout, stderr io.Writer) int {
 		Stdout:   stdout,
 		Version:  version.Version(),
 		Resolved: host,
-		Registry: builtin.Registry(builtin.Deps{
-			Run:       host.Runner,
-			Look:      host.Looker,
-			Probes:    &host.Probes,
-			Container: host.Container,
-		}),
+		Registry: registryFor(host),
 		Include:  include,
 		Exclude:  exclude,
 		Params:   values,
@@ -240,6 +239,51 @@ func runCheck(argv []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "fleetfix check: %v\n", err)
 	}
 	return code
+}
+
+// runDoctor describes the host, its configuration and what `check` would do.
+//
+// No flags of its own. Doctor prints everything it knows every time, because the
+// operator reaching for it does not yet know which section holds their answer --
+// a --section filter would mostly be a way to miss it.
+func runDoctor(argv []string, stdout, stderr io.Writer, logDestination string) int {
+	if len(argv) > 0 {
+		fmt.Fprintf(stderr, "fleetfix doctor: unexpected argument %q\n", argv[0])
+		return exitcode.Unknown
+	}
+
+	// The same resolver and the same registry `check` would build, which is the
+	// whole point of the command: what is printed here is what the checks would
+	// grade by, not a second reading that ought to match.
+	host := resolve.New(resolve.Options{})
+
+	code, err := doctorcmd.Run(context.Background(), doctorcmd.Options{
+		Stdout:         stdout,
+		Version:        version.Version(),
+		Resolved:       host,
+		Registry:       registryFor(host),
+		LogDestination: logDestination,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "fleetfix doctor: %v\n", err)
+	}
+	return code
+}
+
+// registryFor assembles this build's checks over an already-resolved host.
+//
+// One function rather than a Deps literal in each front door, and that is not
+// tidiness. M3's exit criterion is that doctor and `check --json` agree about
+// what is in play; two literals would agree until the day one of them gained a
+// field, and then doctor would describe a registry the checks were not built
+// from -- with nothing failing, because both would still compile and run.
+func registryFor(host *resolve.Resolved) *check.Registry {
+	return builtin.Registry(builtin.Deps{
+		Run:       host.Runner,
+		Look:      host.Looker,
+		Probes:    &host.Probes,
+		Container: host.Container,
+	})
 }
 
 // paramPairs turns --param K=V into the map the runner takes.
@@ -272,6 +316,7 @@ Triage toolbox for Ubuntu/Debian fleet operators.
 
 Commands:
   check     Collect host health and write JSON to stdout.
+  doctor    Describe this host, its configuration and what check would run.
   help      Show this help.
 
 Flags:
