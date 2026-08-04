@@ -123,18 +123,33 @@ func sortedKeys(m map[string]any) []string {
 // Describe renders a set for `fleetfix doctor`, marking the rules an operator has
 // changed so the listing answers "is my file in effect?" and not merely "what are
 // the numbers?".
+// Two passes, because the bounds column's width is content and not a guess: %g
+// renders 1 and 85 at different widths, so padding the unit alone left the
+// descriptions of the ratio rules two characters left of everybody else's. A
+// table that loses its alignment on some rows is harder to read than one that
+// never had any.
 func (s Set) Describe() []string {
 	base := Defaults()
-	lines := make([]string, 0, len(s))
-	for _, id := range s.IDs() {
+	ids := s.IDs()
+
+	bounds := make([]string, len(ids))
+	width := 0
+	for i, id := range ids {
+		r := s[id]
+		bounds[i] = fmt.Sprintf("warn %g crit %g %s", r.Warn, r.Crit, r.Unit)
+		width = max(width, len(bounds[i]))
+	}
+
+	lines := make([]string, 0, len(ids))
+	for i, id := range ids {
 		r := s[id]
 		suffix := ""
 		if b, ok := base[id]; !ok || b.Warn != r.Warn || b.Crit != r.Crit {
 			suffix = " (overridden)"
 		}
 		lines = append(lines, fmt.Sprintf(
-			"%-18s warn %g crit %g %-5s  %s%s",
-			r.ID, r.Warn, r.Crit, r.Unit, r.Description, suffix,
+			"%-18s %-*s  %s%s",
+			r.ID, width, bounds[i], r.Description, suffix,
 		))
 	}
 	return lines

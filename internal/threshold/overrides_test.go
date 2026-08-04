@@ -261,6 +261,36 @@ func TestDescribeMarksWhatTheOperatorChanged(t *testing.T) {
 	}
 }
 
+// The default set alone contains a one-digit bound (cpu.load_per_cpu warns at 1)
+// and two-digit ones (disk warns at 85), so a fixed-width bounds column shunted
+// the ratio rules' descriptions two characters left of everybody else's. Asserted
+// on the descriptions rather than on a rendered string, because the widths are
+// derived from whatever rules the set holds and pinning one spelling of the table
+// would break the next time a rule is added.
+func TestDescribeKeepsOneDescriptionColumn(t *testing.T) {
+	set, _ := Merge(nil)
+	lines := set.Describe()
+	if len(lines) < 2 {
+		t.Fatalf("Describe printed %d lines; alignment needs at least two", len(lines))
+	}
+
+	at := -1
+	for i, id := range set.IDs() {
+		got := strings.Index(lines[i], set[id].Description)
+		if got < 0 {
+			t.Fatalf("line %d does not carry %s's description: %q", i, id, lines[i])
+		}
+		if at < 0 {
+			at = got
+			continue
+		}
+		if got != at {
+			t.Errorf("%s's description starts at %d and the first at %d:\n%s",
+				id, got, at, strings.Join(lines, "\n"))
+		}
+	}
+}
+
 // A rule invented in an operator's file must not appear in Describe as though the
 // host grades by it -- Merge drops it, and this is the check that Describe agrees.
 func TestDescribeShowsOnlyRulesTheHostGradesBy(t *testing.T) {
