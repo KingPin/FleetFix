@@ -114,3 +114,23 @@ func TestTouchCreatesTheParentAndLeavesAnExistingFileAlone(t *testing.T) {
 		t.Fatalf("touch rewrote the file: %q", data)
 	}
 }
+
+// A Paths with no state directory has nowhere to fall back to. Joining onto an
+// empty directory yields the bare name "audit.log", which resolves against
+// whatever directory the process happens to be in -- so the same tool run from
+// three places would leave three partial trails, each looking like the whole one.
+func TestAuditPathRefusesToFallBackToTheWorkingDirectory(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: /var/log takes the write and there is no fallback")
+	}
+	path, reason := Paths{}.AuditPath()
+	if reason == nil {
+		t.Fatal("no reason was reported for a fallback that could not be prepared")
+	}
+	if path != AuditLogPath {
+		t.Errorf("AuditPath = %q, want the primary %q rather than a relative name", path, AuditLogPath)
+	}
+	if !filepath.IsAbs(path) {
+		t.Errorf("AuditPath = %q, which resolves against the working directory", path)
+	}
+}

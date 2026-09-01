@@ -48,6 +48,15 @@ func (p Paths) AuditPath() (string, error) {
 	if err == nil {
 		return AuditLogPath, nil
 	}
+	if p.StateDir == "" {
+		// Nowhere to fall back to. Joining onto an empty directory yields the bare
+		// name "audit.log", which resolves against whatever directory the process
+		// happens to be in -- so a fleet tool run from three places would leave
+		// three partial trails and each would look like the whole one. Answering
+		// with the primary instead means the caller's open fails with the real
+		// permission error, which is a refusal rather than a scattered trail.
+		return AuditLogPath, err
+	}
 	// 0o700, where the primary's parent is 0o755. /var/log/fleetfix-audit.log is
 	// meant to be collected by a log shipper running as `adm`; a trail under a
 	// user's own state directory has no such reader, and the XDG specification

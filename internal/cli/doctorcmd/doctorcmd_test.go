@@ -64,6 +64,7 @@ func testPaths(t *testing.T) *config.Paths {
 // container section cannot be satisfied by this developer's machine.
 func bare(t *testing.T, opts ...func(*resolve.Options)) *resolve.Resolved {
 	t.Helper()
+	trail := t.TempDir()
 	o := resolve.Options{
 		Paths:      testPaths(t),
 		Runner:     cmdrun.NewFake(),
@@ -71,6 +72,10 @@ func bare(t *testing.T, opts ...func(*resolve.Options)) *resolve.Resolved {
 		Getenv:     func(string) string { return "" },
 		Privilege:  &privilege.Prober{Runner: cmdrun.NewFake(), UID: 1000},
 		DetectHost: func() report.Host { return report.Host{Hostname: "web-01", Kernel: "6.8.0", Arch: "aarch64"} },
+		// doctor opens the trail, so every test needs one of its own. The default
+		// answers /var/log for a root process, and the CI smoke matrix runs a
+		// root leg.
+		AuditPath: func() (string, error) { return filepath.Join(trail, "audit.log"), nil },
 	}
 	for _, apply := range opts {
 		apply(&o)
@@ -502,3 +507,71 @@ func TestAnEmptySectionPrintsNothingAtAll(t *testing.T) {
 type refusingWriter struct{}
 
 func (refusingWriter) Write([]byte) (int, error) { return 0, os.ErrClosed }
+
+// An operator who greps /var/log and finds nothing needs to be told where the
+// records actually go. Naming the path is the point of the section.
+func TestTheAuditSectionNamesTheTrail(t *testing.T) {
+	trail := filepath.Join(t.TempDir(), "audit.log")
+	host := bare(t, func(o *resolve.Options) {
+		o.AuditPath = func() (string, error) { return trail, nil }
+	})
+
+	got := under(t, run(t, Options{Resolved: host}), "Audit trail")
+	if !containsField(got, "path", trail) {
+		t.Errorf("the section does not name the trail: %v", got)
+	}
+	if contains(got, "fell back because") {
+		t.Errorf("a fallback was reported for a trail that opened where it was asked to: %v", got)
+	}
+	if _, err := os.Stat(trail); err != nil {
+		t.Errorf("doctor described a trail it did not open: %v", err)
+	}
+}
+
+// The fallback is not a failure, and the reason is the whole value of the line:
+// "not writable by this user" is what tells an operator to run it under sudo
+// rather than to go looking for a bug.
+func TestTheAuditSectionExplainsAFallback(t *testing.T) {
+	trail := filepath.Join(t.TempDir(), "audit.log")
+	host := bare(t, func(o *resolve.Options) {
+		o.AuditPath = func() (string, error) {
+			return trail, errors.New("/var/log/fleetfix-audit.log: permission denied")
+		}
+	})
+
+	got := under(t, run(t, Options{Resolved: host}), "Audit trail")
+	if !containsField(got, "path", trail) {
+		t.Errorf("the fallback path is not named: %v", got)
+	}
+	if !containsField(got, "fell back because", "/var/log/fleetfix-audit.log: permission denied") {
+		t.Errorf("the reason for the fallback is missing: %v", got)
+	}
+}
+
+// A trail that will not open at all is the one thing in this section that is a
+// problem, and doctor's job is to say so rather than to print a path that does
+// not work.
+func TestTheAuditSectionReportsAnUnwritableTrail(t *testing.T) {
+	host := bare(t, func(o *resolve.Options) {
+		o.AuditPath = func() (string, error) {
+			return filepath.Join(t.TempDir(), "no-such-dir", "audit.log"), nil
+		}
+	})
+
+	got := under(t, run(t, Options{Resolved: host}), "Audit trail")
+	if !containsField(got, "path", "unwritable") {
+		t.Errorf("an unopenable trail was described as usable: %v", got)
+	}
+	if !contains(got, "error") {
+		t.Errorf("no reason was given for the refusal: %v", got)
+	}
+}
+
+func containsField(lines []string, label, value string) bool {
+	for _, line := range lines {
+		if strings.Contains(line, label) && strings.Contains(line, value) {
+			return true
+		}
+	}
+	return false
+}

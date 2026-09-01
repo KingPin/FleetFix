@@ -24,6 +24,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/KingPin/FleetFix/v2/internal/audit"
 	"github.com/KingPin/FleetFix/v2/internal/cmdrun"
 	"github.com/KingPin/FleetFix/v2/internal/config"
 	"github.com/KingPin/FleetFix/v2/internal/container"
@@ -33,6 +34,7 @@ import (
 	"github.com/KingPin/FleetFix/v2/internal/privilege"
 	"github.com/KingPin/FleetFix/v2/internal/report"
 	"github.com/KingPin/FleetFix/v2/internal/threshold"
+	"github.com/KingPin/FleetFix/v2/internal/version"
 )
 
 // Files are the configuration files read on every run, in the order their
@@ -74,6 +76,14 @@ type Options struct {
 	// DetectHost names the machine. Nil means hostinfo.Detect, which reads the
 	// live /proc and /etc.
 	DetectHost func() report.Host
+
+	// AuditPath decides where the trail goes. Nil means Paths.AuditPath, which
+	// prefers /var/log and falls back to the state directory.
+	//
+	// A seam because the default's answer depends on who is running: as root it
+	// is the real fleet-wide trail, and the CI smoke matrix runs a root leg. A
+	// test that appended there would be writing to the file an operator greps.
+	AuditPath func() (string, error)
 }
 
 // Resolved is the answer. One per process, shared by every front door.
@@ -118,6 +128,16 @@ type Resolved struct {
 	// runtime is the detected container runtime, before any daemon was asked.
 	runtime container.Runtime
 
+	// auditPath and the memo behind Audit. Separate from mu because opening the
+	// trail and probing the container daemon have nothing to say to each other,
+	// and a caller waiting on a docker probe should not be what delays the
+	// intent line of a destructive action.
+	auditPath  func() (string, error)
+	auditOnce  sync.Once
+	auditW     *audit.Writer
+	auditErr   error
+	auditWhere string
+
 	// mu is held across the container probe, not just around the memo, so N
 	// callers arriving together produce one subprocess. Same reasoning as
 	// privilege.Prober: the probe is bounded, so the wait is bounded too.
@@ -148,6 +168,9 @@ func New(opts Options) *Resolved {
 	if opts.DetectHost == nil {
 		opts.DetectHost = hostinfo.Detect
 	}
+	if opts.AuditPath == nil {
+		opts.AuditPath = opts.Paths.AuditPath
+	}
 
 	r := &Resolved{
 		Paths:     *opts.Paths,
@@ -158,6 +181,7 @@ func New(opts Options) *Resolved {
 		Runner:    opts.Runner,
 		Looker:    opts.Looker,
 		runtime:   container.Detect(opts.Looker, opts.Getenv),
+		auditPath: opts.AuditPath,
 	}
 
 	// Thresholds, identity and probes are read through their own resolvers
@@ -219,6 +243,50 @@ func (r *Resolved) Container(ctx context.Context) container.Runtime {
 	}
 	return *r.probed
 }
+
+// Audit opens the audit trail on first use and returns the same writer after.
+//
+// Lazy, unlike everything else this package resolves. Opening the trail creates
+// the file, and `check --json` runs from a scheduler on every host: creating a
+// trail there would put an empty fleetfix-audit.log on every machine in a fleet,
+// which tells a reader nothing and looks like it should. `doctor` does open it,
+// because "can this install write its audit trail?" is one of the questions
+// doctor exists to answer and there is no way to answer it without trying.
+//
+// One writer per process, because the session id is what joins a launch to the
+// exit that followed it and the sequence is what orders records a millisecond
+// timestamp cannot. Two writers would issue two of each.
+//
+// The error is the caller's to act on, not to log: a destructive action whose
+// trail will not open must be refused, which is the only thing that makes the
+// local file authoritative rather than aspirational.
+func (r *Resolved) Audit() (*audit.Writer, error) {
+	r.auditOnce.Do(func() {
+		// The reason is kept, not returned. It says the trail fell back to the
+		// state directory, which is doctor's to report and is not a failure --
+		// the path beside it is usable either way.
+		path, reason := r.auditPath()
+		if reason != nil {
+			r.auditWhere = reason.Error()
+		}
+		// No Sink. The OTLP destination resolves (audit.LoadOtelConfig) but
+		// nothing exports yet, and a sink that silently dropped every record
+		// would be worse than the absence an operator can see in doctor.
+		r.auditW, r.auditErr = audit.New(audit.Options{
+			Path:     path,
+			Operator: r.Operator,
+			Version:  version.Version(),
+		})
+	})
+	return r.auditW, r.auditErr
+}
+
+// AuditFallback reports why the trail is not in /var/log, or "" when it is.
+//
+// Empty until Audit has been called, because the answer is a side effect of
+// trying: /var/log exists and is root-owned everywhere, so statting it says
+// nothing that opening the file does not say better.
+func (r *Resolved) AuditFallback() string { return r.auditWhere }
 
 // Meta fills the report envelope's host-facing half.
 //
