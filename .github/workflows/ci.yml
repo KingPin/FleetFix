@@ -342,17 +342,33 @@ jobs:
           echo "$out" | grep -q 'not a dynamic executable'
 
   smoke:
-    # Runs the amd64 binary on the oldest glibc we support and on musl, as root and
-    # as an unprivileged user. v1 could not do this at all: the PyInstaller onefile
+    # Runs the amd64 binary on each userland we claim to support, as root and as an
+    # unprivileged user. v1 could not do this at all: the PyInstaller onefile
     # unpacks into /tmp and pins a glibc floor, so Alpine and read-only hosts were
     # simply out of reach. The claim is now testable, so it gets tested.
+    #
+    # Not a glibc-version matrix, despite appearances. The binary is CGO_ENABLED=0
+    # and the build job proves per-architecture that it carries no DT_NEEDED at
+    # all, so there is no libc to be too old. What actually varies across these
+    # images is the userland the tool reads: GNU coreutils against busybox,
+    # systemd present or absent, which of ping and curl exist, and whether su and
+    # adduser take the flags we hand them.
+    #
+    # The two families track README's support line -- Ubuntu 22.04+ / Debian 12+ --
+    # at the declared floor and at current stable, so a leg failing means either a
+    # real regression or a support claim that has moved. debian:11 used to sit here
+    # and was below that floor.
+    #
+    # alpine:3.20 is the adversarial one and earns its place: busybox ping but no
+    # curl is what caught the ladder grading a curl-less host as crit.
     runs-on: ubuntu-24.04
     needs: build
     strategy:
       fail-fast: false
       matrix:
         image:
-          - debian:11
+          - debian:12
+          - debian:13
           - ubuntu:22.04
           - ubuntu:24.04
           - alpine:3.20
@@ -364,10 +380,10 @@ jobs:
           cache: false
 
       # Built on the runner, not inside the image under test. What this job
-      # asserts is that one static binary behaves on four userlands, so building
-      # it once proves everything building it four times would -- and building
+      # asserts is that one static binary behaves on five userlands, so building
+      # it once proves everything building it five times would -- and building
       # inside the image would drag the module proxy into the gate over TLS,
-      # which debian:11 and the ubuntu images cannot do without ca-certificates.
+      # which the debian and ubuntu images cannot do without ca-certificates.
       # Installing those would put a package mirror between this gate and its
       # verdict, which is the same trade the script refuses when it declines jq.
       - name: Build
