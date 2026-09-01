@@ -178,3 +178,24 @@ func TestLadderBudgetsForEveryRungItWillRun(t *testing.T) {
 		t.Errorf("needs %v", spec.NeedsBins)
 	}
 }
+
+// A missing tool is not a broken network. The ladder must not report crit when
+// curl is simply absent; the https rung goes unavailable instead.
+func TestLadderDoesNotBlameAHostThatHasNoCurl(t *testing.T) {
+	t.Parallel()
+	h := newHost(t, "ping", "ss", "traceroute")
+	h.run.Stdout(pingClean, "ping", ladderPingArgv("192.168.1.1")...)
+	h.run.Stdout(pingClean, "ping", ladderPingArgv("8.8.8.8")...)
+
+	res, _ := h.runID(t, LadderID, nil)
+
+	if res.Status != check.StatusWarn {
+		t.Fatalf("status = %q, want StatusWarn", res.Status)
+	}
+	if !strings.Contains(res.Summary, "curl is not installed") {
+		t.Errorf("summary = %q, want to contain 'curl is not installed'", res.Summary)
+	}
+	if res.Steps[4].Status != check.StatusUnavailable {
+		t.Errorf("https rung (step 4) status = %q, want StatusUnavailable", res.Steps[4].Status)
+	}
+}
