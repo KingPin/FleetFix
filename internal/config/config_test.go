@@ -120,18 +120,26 @@ func TestReadYAMLMappingMissingFileIsSilent(t *testing.T) {
 	}
 }
 
-func TestReadYAMLMappingUnreadableFileIsSilent(t *testing.T) {
+// A file that is there and will not open is the other case the operator has to
+// be told about. v1 caught it with absence and said nothing, so a root-owned
+// /etc/fleetfix override read as "you never wrote one". The map is still empty,
+// which is what keeps every v1 call site working; only the report gets louder.
+func TestReadYAMLMappingUnreadableFileWarnsAndReturns(t *testing.T) {
 	log := captureWarnings(t)
-	// A directory: os.ReadFile fails with EISDIR, which is an OSError to v1.
+	// A directory: os.ReadFile fails with EISDIR, which is an OSError to v1, and
+	// unlike a mode bit it fails the same way for root.
 	got, err := ReadProbesYAML(t.TempDir())
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
+	if err == nil {
+		t.Fatal("want an error")
 	}
 	if len(got) != 0 {
 		t.Errorf("got %#v, want an empty map", got)
 	}
-	if log.Len() != 0 {
-		t.Errorf("an unreadable file logged: %s", log)
+	if got == nil {
+		t.Error("returned a nil map; callers index it without checking")
+	}
+	if log.Len() == 0 {
+		t.Error("an unreadable file was silent")
 	}
 }
 

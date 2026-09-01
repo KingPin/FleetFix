@@ -230,6 +230,44 @@ func TestAnUnparseableLayerDegradesAndSaysSo(t *testing.T) {
 	}
 }
 
+// A file that is there and will not open is the case v1 could not tell from a
+// file that was never written, and the two want opposite things from the
+// operator: one is a mode bit to fix, the other is a file to create. Reporting
+// an unreadable layer as absent sends them to write a file that already exists.
+//
+// Staged as a directory where a file should be, so the case is the same for root
+// -- who can read a 0000 file -- as for anyone else.
+func TestAnUnreadableLayerIsFoundNotAbsent(t *testing.T) {
+	p := testPaths(t)
+	if err := os.MkdirAll(filepath.Join(p.SystemDir, ProbesFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeYAML(t, p.UserDir, ProbesFile, "ping:\n  count: 3\n")
+
+	got := p.Load(ProbesFile)
+	ping, _ := got.Values["ping"].(map[string]any)
+	if ping["count"] != int64(3) {
+		t.Errorf("the readable layer did not load: %v", got.Values)
+	}
+	sys := got.Sources[0]
+	if !sys.Exists || sys.Err == nil {
+		t.Errorf("the unreadable layer reported as %+v, want exists with an error", sys)
+	}
+	if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], p.SystemDir) {
+		t.Fatalf("warnings = %v, want one naming the file that could not be read", got.Warnings)
+	}
+	if eff := got.Effective(); len(eff) != 1 || !strings.Contains(eff[0], p.UserDir) {
+		t.Errorf("Effective() = %v, want only the layer that was read", eff)
+	}
+	// Named apart from a parse failure: chmod is a different fix from a syntax
+	// error, and telling an operator their file is unparseable sends them to read
+	// a file they cannot open.
+	desc := strings.Join(got.DescribeLayers(), "\n")
+	if !strings.Contains(desc, "unreadable") || strings.Contains(desc, "absent") {
+		t.Errorf("DescribeLayers does not tell unreadable from absent:\n%s", desc)
+	}
+}
+
 // An empty file is an operator saying "nothing here", which is not the same as
 // not having written one -- doctor should show it as in play.
 func TestAnEmptyFileIsInPlayNotAbsent(t *testing.T) {

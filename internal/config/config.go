@@ -19,11 +19,11 @@
 //	map[string]any       !!map
 //	map[string]struct{}  !!set
 //
-// A loader never fails on a missing file, an unparseable one, or one whose top
-// level is not a mapping -- it returns an empty map, which is v1's contract and
-// what every call site is written against. It does return the parse error
-// alongside, so `check --json` can carry it in config_warnings[] and `doctor` can
-// show it; v1 could only log.
+// A loader never fails on a missing file, an unreadable one, an unparseable one,
+// or one whose top level is not a mapping -- it returns an empty map, which is
+// v1's contract and what every call site is written against. It does return the
+// read or parse error alongside, so `check --json` can carry it in
+// config_warnings[] and `doctor` can show it; v1 could only log.
 //
 // "Never fails" is stronger here than in v1, deliberately. v1 read the file with
 // Path.read_text(encoding="utf-8") and caught OSError, so a config file containing
@@ -32,6 +32,8 @@
 package config
 
 import (
+	"errors"
+	"io/fs"
 	"log/slog"
 	"os"
 )
@@ -64,6 +66,26 @@ func readYAMLMapping(path string) (map[string]any, error) {
 	return m, err
 }
 
+// A readError is a layer that was there and could not be read: a permission bit,
+// a directory where a file was meant to go, an I/O error.
+//
+// Told apart from a parse failure because the operator's fix is a different one
+// -- chmod, not YAML -- and because "absent" is the wrong thing to tell them
+// either way. It carries the bare cause rather than os.ReadFile's *fs.PathError,
+// since every line that renders one already names the path.
+type readError struct{ err error }
+
+func (e *readError) Error() string { return e.err.Error() }
+func (e *readError) Unwrap() error { return e.err }
+
+func newReadError(err error) *readError {
+	var pathErr *fs.PathError
+	if errors.As(err, &pathErr) {
+		return &readError{err: pathErr.Err}
+	}
+	return &readError{err: err}
+}
+
 // readYAMLMappingSource is readYAMLMapping plus whether the file was there.
 //
 // The layered loader needs that third answer and the v1-compatible readers must
@@ -73,12 +95,19 @@ func readYAMLMapping(path string) (map[string]any, error) {
 // here", which is worth reporting as in-use rather than as missing.
 func readYAMLMappingSource(path string) (values map[string]any, exists bool, err error) {
 	data, err := os.ReadFile(path) //nolint:gosec // the path is the argument; naming a file is the whole call
-	if err != nil {
-		// v1 swallows the read error without a warning, and that is right for the
-		// common case: an absent per-host override is normal, not a problem. It
-		// also means an unreadable file is silent, which is why `doctor` reports
-		// config-file readability separately instead of inferring it from here.
-		return map[string]any{}, false, nil //nolint:nilerr // v1 swallows this; the returned error is reserved for a parse failure
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		// The common case and not a problem: most hosts have no per-host
+		// override, and v1 swallowed this silently for exactly that reason.
+		return map[string]any{}, false, nil //nolint:nilerr // absence is the normal case, not a finding
+	case err != nil:
+		// Found and then not read. v1 swallowed this along with absence, which is
+		// how a root-owned /etc/fleetfix/thresholds.yml gets debugged for an hour:
+		// the operator's file is right there and the report says nothing. Reported
+		// as a layer that exists and contributed nothing, so the audit can say
+		// "found but could not be read" rather than "absent".
+		slog.Warn("failed to read config file", "path", path, "error", err)
+		return map[string]any{}, true, newReadError(err)
 	}
 	m, err := parseYAMLMapping(data)
 	if err != nil {

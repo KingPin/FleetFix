@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/user"
@@ -100,8 +101,9 @@ func homeDir() string {
 type Source struct {
 	Path   string
 	Exists bool
-	// Err is a parse failure. A file that exists and did not parse contributed
-	// nothing, which is different from a file that contributed an empty mapping.
+	// Err is why a layer that exists contributed nothing: it would not be read,
+	// or it would not parse. Either is different from a file that contributed an
+	// empty mapping, and both are different from a file that is not there.
 	Err error
 }
 
@@ -196,7 +198,13 @@ func mergeMappings(base, over map[string]any) map[string]any {
 func (l Loaded) DescribeLayers() []string {
 	lines := make([]string, 0, len(l.Sources))
 	for _, s := range l.Sources {
+		var unread *readError
 		switch {
+		case errors.As(s.Err, &unread):
+			// Named apart from a parse failure: "unreadable: permission denied"
+			// tells the operator to look at the mode bits, where "unparseable"
+			// would send them to read a file they cannot open.
+			lines = append(lines, fmt.Sprintf("%s  (unreadable: %v)", s.Path, s.Err))
 		case s.Err != nil:
 			lines = append(lines, fmt.Sprintf("%s  (unparseable: %v)", s.Path, s.Err))
 		case s.Exists:
