@@ -209,3 +209,20 @@ func TestFakeIsSafeUnderConcurrentUse(t *testing.T) {
 		t.Errorf("Calls() has %d entries, want 32", got)
 	}
 }
+
+func TestFakePartialKeepsTheOutputAWrittenCommandAlreadyProduced(t *testing.T) {
+	// Partial registers output AND an error for a command killed after writing.
+	// The diagnostic is the partial output written before the kill.
+	f := NewFake().Partial(Result{Stdout: "hop 1\nhop 2\n"}, context.DeadlineExceeded, "traceroute", "8.8.8.8")
+
+	res, err := f.Run(t.Context(), "traceroute", "8.8.8.8")
+	if err == nil {
+		t.Fatal("Run returned no error for a Partial registration")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("error %v is not context.DeadlineExceeded", err)
+	}
+	if res.Stdout != "hop 1\nhop 2\n" {
+		t.Errorf("Stdout = %q, want the output written before the kill", res.Stdout)
+	}
+}
