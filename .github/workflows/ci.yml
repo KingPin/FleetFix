@@ -356,8 +356,6 @@ jobs:
           - ubuntu:22.04
           - ubuntu:24.04
           - alpine:3.20
-    container:
-      image: ${{ matrix.image }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
@@ -365,6 +363,13 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      # Built on the runner, not inside the image under test. What this job
+      # asserts is that one static binary behaves on four userlands, so building
+      # it once proves everything building it four times would -- and building
+      # inside the image would drag the module proxy into the gate over TLS,
+      # which debian:11 and the ubuntu images cannot do without ca-certificates.
+      # Installing those would put a package mirror between this gate and its
+      # verdict, which is the same trade the script refuses when it declines jq.
       - name: Build
         env:
           CGO_ENABLED: "0"
@@ -373,26 +378,28 @@ jobs:
       # Both legs run the same script, which is the point of it being a script:
       # the contract this job asserts lives in one file a developer can run
       # against a container on their laptop, rather than in YAML that can only
-      # be exercised by pushing.
-      - name: Run as root
-        run: sh .github/scripts/smoke.sh /tmp/fleetfix
-
-      - name: Run as an unprivileged user
+      # be exercised by pushing. The image arrives through the environment rather
+      # than interpolated into the shell, so the matrix cannot smuggle in syntax.
+      - name: Smoke, as root and as an unprivileged user
+        env:
+          IMAGE: ${{ matrix.image }}
         run: |
           set -eu
-          # Both distro families, without assuming which useradd is present.
-          if command -v useradd >/dev/null 2>&1; then
-            useradd -m probe || true
-          else
-            adduser -D probe || true
-          fi
-          # Copied out of the root-owned checkout for the same reason the binary
-          # already is: probe has to be able to read both, whatever the workspace
-          # permissions happen to be.
-          cp .github/scripts/smoke.sh /tmp/smoke.sh
-          chmod 0755 /tmp/fleetfix /tmp/smoke.sh
-          # The script's stderr spool is created by whoever ran it last. Root's
-          # copy is mode 644, so probe could not overwrite it and every case
-          # would report an empty stderr.
-          rm -f /tmp/smoke-err
-          su probe -c 'sh /tmp/smoke.sh /tmp/fleetfix'
+          docker run --rm \
+            -v /tmp/fleetfix:/usr/local/bin/fleetfix:ro \
+            -v "$PWD/.github/scripts/smoke.sh:/smoke.sh:ro" \
+            "$IMAGE" sh -eu -c '
+              sh /smoke.sh /usr/local/bin/fleetfix
+
+              # Both distro families, without assuming which useradd is present.
+              if command -v useradd >/dev/null 2>&1; then
+                useradd -m probe
+              else
+                adduser -D probe
+              fi
+              # The script stderr spool belongs to whoever ran it last. Root left
+              # it mode 644, so probe could not overwrite it and every stderr
+              # case would pass against an empty file.
+              rm -f /tmp/smoke-err
+              su probe -c "sh /smoke.sh /usr/local/bin/fleetfix"
+            '
