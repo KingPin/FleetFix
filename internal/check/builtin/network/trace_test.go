@@ -47,17 +47,28 @@ func TestTraceReportsThePathItReached(t *testing.T) {
 	if res.Summary != "trace 8.8.8.8 — reached in 3 hops (12.4ms)" {
 		t.Errorf("summary = %q", res.Summary)
 	}
-	// One step per hop, rendered the way traceroute renders it.
-	if len(res.Steps) != 3 {
+	// The opening line, then one step per hop rendered the way traceroute renders
+	// it.
+	if len(res.Steps) != 4 {
 		t.Fatalf("got %d steps: %+v", len(res.Steps), res.Steps)
 	}
-	if res.Steps[0].Text != "  1  192.168.1.1  0.7ms" {
-		t.Errorf("first hop = %q", res.Steps[0].Text)
+	if res.Steps[1].Text != "  1  192.168.1.1  0.7ms" {
+		t.Errorf("first hop = %q", res.Steps[1].Text)
 	}
 	// Said before the trace runs, because this check can sit silent for half a
 	// minute and a row that does not say why reads as a hang.
 	if want := "traceroute to 8.8.8.8, up to 15 hops (up to 9s)"; streamed[0].Text != want {
 		t.Errorf("opening event = %q", streamed[0].Text)
+	}
+	// The report carries it too: which tool ran, against what target and what
+	// wall clock is the first thing to check when a trace says nothing, and a
+	// check that built its own steps[] would have dropped this line from it.
+	if res.Steps[0].Text != streamed[0].Text {
+		t.Errorf("steps[0] = %q, want the opening line the stream carried", res.Steps[0].Text)
+	}
+	// Streamed once, not once per rendering surface.
+	if len(streamed) != len(res.Steps) {
+		t.Errorf("streamed %d events for %d steps: %+v", len(streamed), len(res.Steps), streamed)
 	}
 	if m := metricNamed(t, res, TraceHopsMetric); m.Value != 3 {
 		t.Errorf("hops metric = %v", m.Value)
@@ -82,10 +93,11 @@ func TestTraceWarnsWhenThePathGoesDark(t *testing.T) {
 	}
 	// A silent hop in the middle is a warning on its own row and never a failure:
 	// one router configured not to reply is not a fault.
-	if got := res.Steps[3].Status; got != check.StatusWarn {
+	// Offset by one: steps[0] is the opening line, so hop N is steps[N].
+	if got := res.Steps[4].Status; got != check.StatusWarn {
 		t.Errorf("silent hop = %q, want warn", got)
 	}
-	if got := res.Steps[0].Status; got != check.StatusOK {
+	if got := res.Steps[1].Status; got != check.StatusOK {
 		t.Errorf("responding hop = %q", got)
 	}
 }
@@ -132,10 +144,11 @@ func TestTraceKeepsThePartialPathItCollectedBeforeTheWallClock(t *testing.T) {
 		"traceroute", traceArgv("8.8.8.8")...)
 
 	res, _ := h.runID(t, TracerouteID, nil)
-	if len(res.Steps) != 7 {
-		t.Fatalf("got %d steps, want 6 hops plus the reason: %+v", len(res.Steps), res.Steps)
+	if len(res.Steps) != 8 {
+		t.Fatalf("got %d steps, want the opening line, 6 hops and the reason: %+v",
+			len(res.Steps), res.Steps)
 	}
-	last := res.Steps[6]
+	last := res.Steps[7]
 	if last.Text != "traceroute hit the 9s wall clock (partial)" {
 		t.Errorf("reason = %q", last.Text)
 	}
@@ -157,8 +170,8 @@ func TestTraceRendersAHopThatAnsweredWithoutATiming(t *testing.T) {
 `, "traceroute", traceArgv("8.8.8.8")...)
 
 	res, _ := h.runID(t, TracerouteID, nil)
-	if res.Steps[1].Text != "  2  203.0.113.9  no rtt  !H" {
-		t.Errorf("hop = %q", res.Steps[1].Text)
+	if res.Steps[2].Text != "  2  203.0.113.9  no rtt  !H" {
+		t.Errorf("hop = %q", res.Steps[2].Text)
 	}
 	// A router answering *for* the destination is not the destination answering,
 	// so this is not a trace that reached its target.

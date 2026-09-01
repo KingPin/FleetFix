@@ -90,16 +90,19 @@ func (c traceroute) Run(ctx context.Context, in check.Input) check.Result {
 
 	result := c.p.Trace(ctx, target, c.probes.Traceroute)
 	res := check.Result{Data: result}
+
+	// Emitted rather than appended to res.Steps: the runner keeps a check's own
+	// Steps if it built any, so building the slice here would drop the opening
+	// line above and leave steps[] unable to say which tool ran or against what
+	// budget -- while a UI that renders both the stream and steps[] showed every
+	// hop twice.
 	for _, hop := range result.Hops {
-		res.Steps = append(res.Steps, check.Event{Text: hopLine(hop), Status: hopStatus(hop)})
+		in.Progress.Emit(check.Event{Text: hopLine(hop), Status: hopStatus(hop)})
 	}
 	if result.Error != nil {
 		// Kept alongside the hops rather than instead of them: a partial trace
 		// still carries the diagnostic, and the error says why it is partial.
-		res.Steps = append(res.Steps, check.Event{Text: *result.Error, Status: check.StatusWarn})
-	}
-	for _, step := range res.Steps {
-		in.Progress.Emit(step)
+		in.Progress.Emit(check.Event{Text: *result.Error, Status: check.StatusWarn})
 	}
 
 	res.Metrics = []check.Metric{

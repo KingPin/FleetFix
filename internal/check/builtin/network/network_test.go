@@ -180,7 +180,14 @@ func run(t *testing.T, c check.Check, params map[string]string) (check.Result, [
 		Params:   params,
 		Progress: check.EmitterFunc(func(e check.Event) { streamed = append(streamed, e) }),
 	}
-	return c.Run(context.Background(), in).Normalize(), streamed
+	res := c.Run(context.Background(), in)
+	// The runner keeps a check's own Steps if it built any and otherwise gives it
+	// what it emitted. Mirrored here so res.Steps below is the steps[] the report
+	// actually carries, rather than only the half a check chose to build itself.
+	if len(res.Steps) == 0 {
+		res.Steps = streamed
+	}
+	return res.Normalize(), streamed
 }
 
 // runID stages the whole domain and runs one check out of it, which is how the
