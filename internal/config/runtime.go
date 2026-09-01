@@ -100,3 +100,11 @@ func touch(path string) error {
 	}
 	return f.Close()
 }
+
+// BinaryPath is where a system-wide install puts the binary, and the answer the
+// updater falls back to when it cannot ask the kernel what it is running.
+//
+// v1's DEFAULT_BINARY_PATH, and the same value: /usr/local/bin is the directory a
+// distribution's package manager leaves alone, so an update that lands there does
+// not fight the next `apt upgrade` over the same path.
+const BinaryPath = "/usr/local/bin/fleetfix"
