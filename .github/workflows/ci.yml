@@ -124,7 +124,46 @@ jobs:
           # override that silently reads as something else.
           internal/config=90
           internal/cli=90
+          # The fleet front door. Every branch in it decides what a cron job's
+          # parser receives -- which document, on which stream, with which exit
+          # code -- and the paths worth testing are exactly the ones that only run
+          # when something has already gone wrong.
+          internal/cli/checkcmd=95
+          # A leaf package of pure arithmetic that decides whether a host pages
+          # anyone. Every bound in it was measured off v1's own severity
+          # functions, and an untested branch is a fleet that stays green.
+          internal/threshold=95
+          # The contract all three front doors share. It is small, has no I/O, and
+          # every branch in it decides what a consumer is told -- a status that
+          # ranks wrong or a slice that marshals to null is a fleet-wide wire bug.
+          internal/check=95
+          # The published JSON contract. Nothing outside this repository can be
+          # fixed by a later release once a consumer pins on it, so every branch
+          # that decides a key, a type or an ordering is worth the floor.
+          internal/report=95
           internal/cmdrun=95
+          # Decides whether the whole container domain reports at all. An untested
+          # branch is either a stopped daemon reported as healthy or a working one
+          # reported unavailable, and both are the same silence in the fleet view.
+          internal/container=95
+          # Six strings that name the machine every other record is filed under.
+          # Not 100 only because uname(2) cannot fail on Linux, and a function
+          # pointer to cover an unreachable syscall error would be more to get
+          # wrong than the branch is worth.
+          internal/hostinfo=95
+          # Who every destructive action is attributed to. An untested branch
+          # here is a sudo action recorded against root instead of the login that
+          # asked for it, which is the one thing an audit trail cannot get wrong.
+          internal/identity=95
+          # The gate in front of every Tier 2 action. v1 got this wrong by
+          # deriving it from "is the sudo binary installed", and an untested
+          # branch here is either a destructive action offered to someone who
+          # cannot run it or one withheld from someone who can.
+          internal/privilege=95
+          # The one resolver check --json and doctor share. An untested branch is
+          # the exact failure it exists to prevent: doctor reporting a policy or a
+          # file set that the checks did not actually use.
+          internal/resolve=95
           internal/hostfs=95
           internal/logging=95
           internal/release=95
@@ -303,22 +342,36 @@ jobs:
           echo "$out" | grep -q 'not a dynamic executable'
 
   smoke:
-    # Runs the amd64 binary on the oldest glibc we support and on musl, as root and
-    # as an unprivileged user. v1 could not do this at all: the PyInstaller onefile
+    # Runs the amd64 binary on each userland we claim to support, as root and as an
+    # unprivileged user. v1 could not do this at all: the PyInstaller onefile
     # unpacks into /tmp and pins a glibc floor, so Alpine and read-only hosts were
     # simply out of reach. The claim is now testable, so it gets tested.
+    #
+    # Not a glibc-version matrix, despite appearances. The binary is CGO_ENABLED=0
+    # and the build job proves per-architecture that it carries no DT_NEEDED at
+    # all, so there is no libc to be too old. What actually varies across these
+    # images is the userland the tool reads: GNU coreutils against busybox,
+    # systemd present or absent, which of ping and curl exist, and whether su and
+    # adduser take the flags we hand them.
+    #
+    # The two families track README's support line -- Ubuntu 22.04+ / Debian 12+ --
+    # at the declared floor and at current stable, so a leg failing means either a
+    # real regression or a support claim that has moved. debian:11 used to sit here
+    # and was below that floor.
+    #
+    # alpine:3.20 is the adversarial one and earns its place: busybox ping but no
+    # curl is what caught the ladder grading a curl-less host as crit.
     runs-on: ubuntu-24.04
     needs: build
     strategy:
       fail-fast: false
       matrix:
         image:
-          - debian:11
+          - debian:12
+          - debian:13
           - ubuntu:22.04
           - ubuntu:24.04
           - alpine:3.20
-    container:
-      image: ${{ matrix.image }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
@@ -326,33 +379,43 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      # Built on the runner, not inside the image under test. What this job
+      # asserts is that one static binary behaves on five userlands, so building
+      # it once proves everything building it five times would -- and building
+      # inside the image would drag the module proxy into the gate over TLS,
+      # which the debian and ubuntu images cannot do without ca-certificates.
+      # Installing those would put a package mirror between this gate and its
+      # verdict, which is the same trade the script refuses when it declines jq.
       - name: Build
         env:
           CGO_ENABLED: "0"
         run: go build -trimpath -o /tmp/fleetfix ./cmd/fleetfix
 
-      - name: Run as root
+      # Both legs run the same script, which is the point of it being a script:
+      # the contract this job asserts lives in one file a developer can run
+      # against a container on their laptop, rather than in YAML that can only
+      # be exercised by pushing. The image arrives through the environment rather
+      # than interpolated into the shell, so the matrix cannot smuggle in syntax.
+      - name: Smoke, as root and as an unprivileged user
+        env:
+          IMAGE: ${{ matrix.image }}
         run: |
           set -eu
-          /tmp/fleetfix --version
-          # check exits 3 in this build (nothing is registered yet), so the exit
-          # code is asserted rather than relied on to be zero.
-          set +e
-          out="$(/tmp/fleetfix check --json)"
-          code=$?
-          set -e
-          test "$code" = "3" || { echo "::error::check exited $code, want 3"; exit 1; }
-          echo "$out" | grep -q '"schema"'
+          docker run --rm \
+            -v /tmp/fleetfix:/usr/local/bin/fleetfix:ro \
+            -v "$PWD/.github/scripts/smoke.sh:/smoke.sh:ro" \
+            "$IMAGE" sh -eu -c '
+              sh /smoke.sh /usr/local/bin/fleetfix
 
-      - name: Run as an unprivileged user
-        run: |
-          set -eu
-          # Both distro families, without assuming which useradd is present.
-          if command -v useradd >/dev/null 2>&1; then
-            useradd -m probe || true
-          else
-            adduser -D probe || true
-          fi
-          chmod 0755 /tmp/fleetfix
-          su probe -c '/tmp/fleetfix --version'
-          su probe -c '/tmp/fleetfix check --json > /dev/null; test $? = 3'
+              # Both distro families, without assuming which useradd is present.
+              if command -v useradd >/dev/null 2>&1; then
+                useradd -m probe
+              else
+                adduser -D probe
+              fi
+              # The script stderr spool belongs to whoever ran it last. Root left
+              # it mode 644, so probe could not overwrite it and every stderr
+              # case would pass against an empty file.
+              rm -f /tmp/smoke-err
+              su probe -c "sh /smoke.sh /usr/local/bin/fleetfix"
+            '

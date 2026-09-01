@@ -3,17 +3,21 @@ package cli
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/KingPin/FleetFix/v2/internal/check"
 	"github.com/KingPin/FleetFix/v2/internal/cli/checkcmd"
 	"github.com/KingPin/FleetFix/v2/internal/cmdrun"
 	"github.com/KingPin/FleetFix/v2/internal/exitcode"
+	"github.com/KingPin/FleetFix/v2/internal/report"
 	"github.com/KingPin/FleetFix/v2/internal/version"
 )
 
@@ -93,6 +97,8 @@ func TestUsageErrorsExitUnknownAndWriteNothingToStdout(t *testing.T) {
 		{"no arguments", nil, "no interactive UI"},
 		{"bad log level", []string{"--log-level", "verbose", "check"}, "unknown level"},
 		{"check with a stray argument", []string{"check", "extra"}, "unexpected argument"},
+		{"doctor with a stray argument", []string{"doctor", "--json"}, "unexpected argument"},
+		{"doctor with a stray word", []string{"doctor", "network"}, "unexpected argument"},
 		{"check with json disabled", []string{"check", "--json=false"}, "only output mode"},
 		{"check with an unknown flag", []string{"check", "--prom"}, "prom"},
 	}
@@ -117,30 +123,52 @@ func TestUsageErrorsExitUnknownAndWriteNothingToStdout(t *testing.T) {
 	}
 }
 
+// decode insists stdout is exactly one report and returns it. Decoded from the
+// whole of stdout, not searched within it: a trailing log line or a leading
+// banner makes this fail, which is the point.
+func decode(t *testing.T, stdout string) report.Report {
+	t.Helper()
+	var rep report.Report
+	if err := json.Unmarshal([]byte(stdout), &rep); err != nil {
+		t.Fatalf("stdout is not a single JSON document: %v\n%s", err, stdout)
+	}
+	return rep
+}
+
+// noMatch is a selector no check will ever answer to, which is how the tests below
+// get a deterministic document out of a live host.
+//
+// Every one of these runs against the machine the suite is on, and now that the
+// build registers real collectors, the interesting fields move: a real disk check
+// reports ok here and crit on a full CI runner, and disk.avail_bytes changes
+// between two consecutive runs on an idle laptop. A selector that matches nothing
+// still exercises the whole path -- flags, resolve, registry, emit, exit code --
+// and produces the same bytes every time. Assertions that are genuinely about a
+// real run stay on a real run and avoid pinning what the host decides.
+const noMatch = "no.such.check"
+
 func TestCheckWritesOnlyJSONToStdout(t *testing.T) {
 	stdout, stderr, code := run(t, "check", "--json")
 
-	if code != exitcode.Unknown {
-		t.Errorf("exit code = %d, want %d: this build examined nothing, so the state is unknown", code, exitcode.Unknown)
-	}
 	if stderr != "" {
 		t.Errorf("stderr = %q, want empty at the default log level", stderr)
 	}
 
-	// Decoded from the whole of stdout, not searched within it. A trailing log line
-	// or a leading banner would make this fail, which is the point.
-	var rep checkcmd.Report
-	if err := json.Unmarshal([]byte(stdout), &rep); err != nil {
-		t.Fatalf("stdout is not a single JSON document: %v\n%s", err, stdout)
+	rep := decode(t, stdout)
+	if rep.Schema != report.Schema {
+		t.Errorf("schema = %q, want %q", rep.Schema, report.Schema)
 	}
-	if rep.Schema != checkcmd.SchemaUnimplemented {
-		t.Errorf("schema = %q, want %q", rep.Schema, checkcmd.SchemaUnimplemented)
+	// The verdict is the host's to decide, but the process and the document must
+	// never disagree about it: a consumer that trusts the exit code and a consumer
+	// that reads exit_code out of a stored report have to reach the same answer.
+	if code != rep.ExitCode {
+		t.Errorf("exit code = %d, document exit_code = %d; the two must agree", code, rep.ExitCode)
 	}
-	if rep.Status != "unknown" {
-		t.Errorf("status = %q, want %q", rep.Status, "unknown")
+	if rep.Error != "" {
+		t.Errorf("error = %q, want empty: the run happened", rep.Error)
 	}
-	if rep.ExitCode != exitcode.Unknown {
-		t.Errorf("exit_code in the document = %d, want %d", rep.ExitCode, exitcode.Unknown)
+	if len(rep.Checks) == 0 {
+		t.Error("checks is empty; this build registers collectors, so a default run must produce results")
 	}
 	if rep.FleetFixVersion != version.Version() {
 		t.Errorf("fleetfix_version = %q, want %q", rep.FleetFixVersion, version.Version())
@@ -150,25 +178,84 @@ func TestCheckWritesOnlyJSONToStdout(t *testing.T) {
 	}
 }
 
-// TestCheckIsTheDefaultOutputMode covers the bare `fleetfix check`, which is what an
-// operator types and what M3's --ndjson/--prom must not change the meaning of.
-func TestCheckIsTheDefaultOutputMode(t *testing.T) {
-	withFlag, _, codeA := run(t, "check", "--json")
-	bare, _, codeB := run(t, "check")
+// A run that could not happen is still one valid document of the published schema,
+// and it says why. This is the path a cron job hits on a typo'd Ansible variable.
+func TestARunThatCouldNotHappenIsStillADocument(t *testing.T) {
+	stdout, stderr, code := run(t, "check", "--json", "--check", noMatch)
 
-	if bare != withFlag {
-		t.Errorf("`check` and `check --json` differ:\n%s\n%s", bare, withFlag)
+	if code != exitcode.Unknown {
+		t.Errorf("exit code = %d, want %d: nothing ran, so nothing is known", code, exitcode.Unknown)
+	}
+	if stderr != "" {
+		t.Errorf("stderr = %q, want empty: the complaint belongs in the document", stderr)
+	}
+
+	rep := decode(t, stdout)
+	// error, not unknown: "unknown" is not one of the six statuses, and the run
+	// did not fail to reach a verdict -- it failed to happen at all.
+	if rep.Status != check.StatusError {
+		t.Errorf("status = %q, want %q", rep.Status, check.StatusError)
+	}
+	if rep.ExitCode != exitcode.Unknown {
+		t.Errorf("exit_code in the document = %d, want %d", rep.ExitCode, exitcode.Unknown)
+	}
+	if rep.Error == "" {
+		t.Error("a failed run carries no error; the document says nothing about why it is empty")
+	}
+}
+
+// TestCheckIsTheDefaultOutputMode covers the bare `fleetfix check`, which is what an
+// operator types and what --ndjson and the coming --prom must not change the
+// meaning of.
+//
+// Compared after dropping the two keys that describe the invocation rather than
+// the host, which is also the byte-stability property M3 has to hold: two runs
+// over an unchanged host differ in when they ran and nothing else.
+//
+// Over a selector that matches nothing, because "an unchanged host" is not
+// something this test can arrange. A real disk check reports avail_bytes, and on
+// any host doing work that genuinely moves between two consecutive runs -- which
+// would make this fail for a true reason that has nothing to do with the flag
+// under test.
+func TestCheckIsTheDefaultOutputMode(t *testing.T) {
+	withFlag, _, codeA := run(t, "check", "--json", "--check", noMatch)
+	bare, _, codeB := run(t, "check", "--check", noMatch)
+
+	if a, b := redact(t, bare), redact(t, withFlag); a != b {
+		t.Errorf("`check` and `check --json` differ:\n%s\n%s", a, b)
 	}
 	if codeA != codeB {
 		t.Errorf("exit codes differ: %d vs %d", codeA, codeB)
 	}
 }
 
+// redact drops generated_at and duration_ms. Dropped rather than blanked, so a
+// key that stopped being emitted at all would still show up as a difference.
+func redact(t *testing.T, stdout string) string {
+	t.Helper()
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+		t.Fatalf("stdout is not JSON: %v\n%s", err, stdout)
+	}
+	delete(doc, "generated_at")
+	delete(doc, "duration_ms")
+	b, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
 // TestChecksIsAnEmptyArrayNotNull guards the []-versus-null distinction at the byte
 // level. A nil slice marshals to null, which is a different document to a consumer
 // doing `for c in doc["checks"]`, and Go gives no hint that it happened.
+//
+// The blanket "no null anywhere" sweep is only meaningful on a document with no
+// results in it: check.Result.Data is an `any` carrying whatever a collector
+// parsed, so a real run may legitimately contain a null inside a check's payload.
+// The empty case is where the nil-slice bug would actually show up.
 func TestChecksIsAnEmptyArrayNotNull(t *testing.T) {
-	stdout, _, _ := run(t, "check")
+	stdout, _, _ := run(t, "check", "--check", noMatch)
 
 	if !strings.Contains(stdout, `"checks": []`) {
 		t.Errorf("checks is not an empty array; a nil slice marshals to null:\n%s", stdout)
@@ -178,18 +265,279 @@ func TestChecksIsAnEmptyArrayNotNull(t *testing.T) {
 	}
 }
 
-// TestDebugLoggingNeverContaminatesStdout is the reason the logging package is
-// wired the way it is. At the noisiest level the diagnostics still land on stderr
-// and stdout still decodes as one document.
-func TestDebugLoggingNeverContaminatesStdout(t *testing.T) {
-	stdout, stderr, code := run(t, "--log-level", "debug", "check", "--json")
+func TestNDJSONPutsTheEnvelopeOnItsOwnLine(t *testing.T) {
+	stdout, stderr, _ := run(t, "check", "--ndjson")
+
+	if stderr != "" {
+		t.Errorf("stderr = %q, want empty", stderr)
+	}
+	lines := strings.Split(strings.TrimSuffix(stdout, "\n"), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("got %d lines, want the envelope and one line per check:\n%s", len(lines), stdout)
+	}
+
+	envelope := decode(t, lines[0])
+	if envelope.Schema != report.Schema {
+		t.Errorf("the first line is not the envelope: %q", lines[0])
+	}
+	// The envelope carries the counts and not the results; the results are the
+	// lines after it. Repeating them in both places would double a streaming
+	// consumer's work and let the two copies disagree.
+	if len(envelope.Checks) != 0 {
+		t.Errorf("the envelope repeats %d results that follow it on their own lines", len(envelope.Checks))
+	}
+	if got, want := len(lines)-1, total(envelope.Counts); got != want {
+		t.Errorf("%d result lines follow the envelope, but it counted %d checks", got, want)
+	}
+	for i, line := range lines[1:] {
+		var res check.Result
+		if err := json.Unmarshal([]byte(line), &res); err != nil {
+			t.Fatalf("line %d is not a check result: %v\n%s", i+2, err, line)
+		}
+		if res.ID == "" {
+			t.Errorf("line %d carries no id: %s", i+2, line)
+		}
+	}
+	// Compact, or a line-oriented reader would see one object as several records.
+	if strings.Contains(stdout, "\n  ") {
+		t.Errorf("the ndjson output is indented:\n%s", stdout)
+	}
+}
+
+func total(c check.Counts) int {
+	return c.OK + c.Warn + c.Crit + c.Skipped + c.Unavailable + c.Error
+}
+
+// The format is how the answer is printed, not what the answer is. Asserted over
+// a selector that matches nothing so both runs reach the same verdict for a
+// reason this test controls.
+func TestTheOutputFormatDoesNotChangeTheVerdict(t *testing.T) {
+	_, _, asJSON := run(t, "check", "--json", "--check", noMatch)
+	_, _, asNDJSON := run(t, "check", "--ndjson", "--check", noMatch)
+
+	if asJSON != asNDJSON {
+		t.Errorf("--json exited %d and --ndjson exited %d over the same run", asJSON, asNDJSON)
+	}
+}
+
+func TestTwoOutputModesAtOnceIsAUsageError(t *testing.T) {
+	stdout, stderr, code := run(t, "check", "--json", "--ndjson")
 
 	if code != exitcode.Unknown {
 		t.Errorf("exit code = %d, want %d", code, exitcode.Unknown)
 	}
-	var rep checkcmd.Report
+	if stdout != "" {
+		t.Errorf("stdout = %q, want empty: neither mode was chosen", stdout)
+	}
+	if !strings.Contains(stderr, "pick one") {
+		t.Errorf("stderr = %q, want it to say the two modes conflict", stderr)
+	}
+}
+
+// --ndjson alone is not a conflict: --json defaults to true, so refusing the
+// pair on the flag's value rather than on whether it was typed would make
+// --ndjson impossible to use.
+func TestNDJSONAloneIsNotAConflict(t *testing.T) {
+	stdout, stderr, _ := run(t, "check", "--ndjson", "--check", noMatch)
+
+	if strings.Contains(stderr, "pick one") {
+		t.Errorf("--ndjson on its own was refused: %q", stderr)
+	}
+	if stdout == "" {
+		t.Error("stdout is empty; --ndjson on its own produced no document")
+	}
+}
+
+func TestListPrintsWhatTheBuildCanCheck(t *testing.T) {
+	stdout, stderr, code := run(t, "check", "--list")
+
+	if code != exitcode.OK {
+		t.Errorf("exit code = %d, want 0: --list says nothing about the host", code)
+	}
+	if stderr != "" {
+		t.Errorf("stderr = %q, want empty", stderr)
+	}
+	var listing checkcmd.Listing
+	if err := json.Unmarshal([]byte(stdout), &listing); err != nil {
+		t.Fatalf("the listing is not a single JSON document: %v\n%s", err, stdout)
+	}
+	if listing.Schema != checkcmd.ListSchema {
+		t.Errorf("schema = %q, want %q", listing.Schema, checkcmd.ListSchema)
+	}
+	if listing.FleetFixVersion != version.Version() {
+		t.Errorf("fleetfix_version = %q, want %q", listing.FleetFixVersion, version.Version())
+	}
+	// --list is the answer to "what does this binary check?", so an empty listing
+	// out of a build that registers collectors is the failure worth catching: it
+	// is what a front door that forgot to build the registry would print.
+	if len(listing.Checks) == 0 {
+		t.Fatal("the listing is empty; the front door built no registry")
+	}
+	for _, c := range listing.Checks {
+		if c.ID == "" || c.Title == "" || c.Domain == "" {
+			t.Errorf("a listed check is missing its identity: %+v", c)
+		}
+		if c.BudgetMS <= 0 {
+			t.Errorf("%s is listed with a %dms budget; a consumer reads that as no time to run", c.ID, c.BudgetMS)
+		}
+	}
+}
+
+// A selector naming nothing is loud and still a document: a warning here would
+// run nothing, find nothing wrong and exit 0, which is a permanently green host.
+func TestAnUnmatchedSelectorIsReportedInTheDocument(t *testing.T) {
+	stdout, stderr, code := run(t, "check", "--check", "dsk.usage")
+
+	if code != exitcode.Unknown {
+		t.Errorf("exit code = %d, want %d", code, exitcode.Unknown)
+	}
+	if stderr != "" {
+		t.Errorf("stderr = %q, want empty: the complaint belongs in the document", stderr)
+	}
+	rep := decode(t, stdout)
+	if !strings.Contains(rep.Error, "dsk.usage") {
+		t.Errorf("error = %q, want it to quote the selector", rep.Error)
+	}
+	// One dropped letter off a check this build ships, which is what the typo
+	// actually is. Sending the operator to --list for it would be a poor use of
+	// their afternoon.
+	if !strings.Contains(rep.Error, "disk.usage") {
+		t.Errorf("error = %q, want it to offer the near miss", rep.Error)
+	}
+}
+
+// TestExitZeroReachesTheRun asserts the split --exit-zero exists for: the process
+// says "the job succeeded" while the document still states what was found.
+// Over a run that could not happen, so the finding it must not erase is a known
+// one rather than whatever the test host happens to report.
+func TestExitZeroReachesTheRun(t *testing.T) {
+	stdout, _, code := run(t, "check", "--exit-zero", "--check", noMatch)
+
+	if code != exitcode.OK {
+		t.Errorf("exit code = %d, want 0", code)
+	}
+	if rep := decode(t, stdout); rep.ExitCode != exitcode.Unknown {
+		t.Errorf("document exit_code = %d, want %d: the verdict belongs in the document", rep.ExitCode, exitcode.Unknown)
+	}
+}
+
+// A malformed pair is refused rather than ignored: an operator who typed
+// `--param path /var/log` meant to inspect something, and a run that quietly
+// skipped the check for want of a parameter it was given would be the least
+// helpful possible answer.
+func TestAMalformedParamIsAUsageError(t *testing.T) {
+	for _, arg := range []string{"path", "=/var/log", " =x"} {
+		t.Run(arg, func(t *testing.T) {
+			stdout, stderr, code := run(t, "check", "--param", arg)
+
+			if code != exitcode.Unknown {
+				t.Errorf("exit code = %d, want %d", code, exitcode.Unknown)
+			}
+			if stdout != "" {
+				t.Errorf("stdout = %q, want empty", stdout)
+			}
+			if !strings.Contains(stderr, "K=V") {
+				t.Errorf("stderr = %q, want it to state the expected form", stderr)
+			}
+		})
+	}
+}
+
+func TestWellFormedParamsAreAccepted(t *testing.T) {
+	stdout, stderr, _ := run(t, "check", "--param", "path=/var/log", "--param", "depth=2")
+
+	if strings.Contains(stderr, "K=V") {
+		t.Errorf("a well-formed pair was refused: %q", stderr)
+	}
+	// An empty value is a value: `--param path=` says "the operator supplied
+	// nothing", which the runner already distinguishes from not asking.
+	if _, stderr, _ := run(t, "check", "--param", "path="); strings.Contains(stderr, "K=V") {
+		t.Errorf("`--param path=` was refused: %q", stderr)
+	}
+	decode(t, stdout)
+}
+
+// A parameter value is arbitrary operator text, so a comma in it is a character
+// rather than a separator. --check splits on commas because a selector is a name
+// out of a fixed vocabulary; --param must not, or every check documenting a
+// comma-separated argument -- storage.env's required_keys is the one this build
+// ships -- becomes unusable through the front door, and the operator gets a usage
+// error naming a key they never wrote.
+func TestAParamValueKeepsItsCommas(t *testing.T) {
+	got, err := paramPairs(rawList{"required_keys=API_TOKEN,SENTRY_DSN", "path=/srv/app,v2/.env"})
+	if err != nil {
+		t.Fatalf("paramPairs: %v", err)
+	}
+	want := map[string]string{
+		"required_keys": "API_TOKEN,SENTRY_DSN",
+		"path":          "/srv/app,v2/.env",
+	}
+	if !maps.Equal(got, want) {
+		t.Errorf("params = %v, want %v", got, want)
+	}
+
+	// And through the flag itself, which is where the splitting was.
+	if _, stderr, _ := run(t, "check", "--param", "required_keys=A,B,C"); strings.Contains(stderr, "K=V") {
+		t.Errorf("a comma-separated value was refused: %q", stderr)
+	}
+}
+
+// Only the first = separates, so a value may hold as many as it likes.
+func TestAParamValueKeepsItsEqualsSigns(t *testing.T) {
+	got, err := paramPairs(rawList{"query=a=1&b=2"})
+	if err != nil {
+		t.Fatalf("paramPairs: %v", err)
+	}
+	if got["query"] != "a=1&b=2" {
+		t.Errorf("query = %q, want %q", got["query"], "a=1&b=2")
+	}
+}
+
+// A repeatable flag that also splits on commas, because both spellings are how
+// this gets used: a person types --check twice, an Ansible task templates one
+// string. Accepting only one of them would silently do nothing useful with the
+// other.
+func TestSelectorsAreRepeatableAndCommaSeparated(t *testing.T) {
+	cases := []struct {
+		name string
+		set  []string
+		want []string
+	}{
+		{"repeated", []string{"disk", "net"}, []string{"disk", "net"}},
+		{"comma separated", []string{"disk,net"}, []string{"disk", "net"}},
+		{"both, with the whitespace an operator leaves in", []string{"disk, net", "docker"}, []string{"disk", "net", "docker"}},
+		{"empty parts are dropped rather than matched", []string{"disk,,"}, []string{"disk"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var list stringList
+			for _, v := range tc.set {
+				if err := list.Set(v); err != nil {
+					t.Fatalf("Set(%q) errored: %v", v, err)
+				}
+			}
+			if strings.Join(list, "\x00") != strings.Join(tc.want, "\x00") {
+				t.Errorf("selectors = %v, want %v", []string(list), tc.want)
+			}
+			if got := list.String(); got != strings.Join(tc.want, ",") {
+				t.Errorf("String() = %q, want %q", got, strings.Join(tc.want, ","))
+			}
+		})
+	}
+}
+
+// TestDebugLoggingNeverContaminatesStdout is the reason the logging package is
+// wired the way it is. At the noisiest level the diagnostics still land on stderr
+// and stdout still decodes as one document.
+func TestDebugLoggingNeverContaminatesStdout(t *testing.T) {
+	stdout, stderr, _ := run(t, "--log-level", "debug", "check", "--json")
+
+	var rep report.Report
 	if err := json.Unmarshal([]byte(stdout), &rep); err != nil {
 		t.Fatalf("debug logging contaminated stdout: %v\n%s", err, stdout)
+	}
+	if rep.Schema != report.Schema {
+		t.Errorf("schema = %q, want %q", rep.Schema, report.Schema)
 	}
 	if !strings.Contains(stderr, "starting") {
 		t.Errorf("stderr carries no debug record: %q", stderr)
@@ -202,18 +550,12 @@ func TestDebugLoggingNeverContaminatesStdout(t *testing.T) {
 func TestLogFileTakesTheDiagnosticsOffStderr(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "fleetfix.log")
 
-	stdout, stderr, code := run(t, "--log-level", "debug", "--log-file", path, "check")
+	stdout, stderr, _ := run(t, "--log-level", "debug", "--log-file", path, "check")
 
-	if code != exitcode.Unknown {
-		t.Errorf("exit code = %d, want %d", code, exitcode.Unknown)
-	}
 	if stderr != "" {
 		t.Errorf("stderr = %q, want empty with --log-file set", stderr)
 	}
-	var rep checkcmd.Report
-	if err := json.Unmarshal([]byte(stdout), &rep); err != nil {
-		t.Fatalf("stdout is not a single JSON document: %v\n%s", err, stdout)
-	}
+	decode(t, stdout)
 
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -292,6 +634,201 @@ func TestCheckHelpGoesToStdout(t *testing.T) {
 	}
 	if stderr != "" {
 		t.Errorf("stderr = %q, want empty", stderr)
+	}
+}
+
+// Doctor reaches its front door and describes this machine, not a fixture. The
+// sections are asserted by heading rather than by content, because everything
+// under them is whatever this host happens to be -- doctorcmd's own suite pins
+// the shape against a staged host.
+func TestDoctorDescribesThisHost(t *testing.T) {
+	stdout, stderr, code := run(t, "doctor")
+
+	// Zero even on a host with no sudo, no docker and no config: doctor describes,
+	// it does not grade. An exit code here would have to rank an ordinary host's
+	// ordinary gaps, and any ranking would be wrong for somebody's fleet.
+	if code != exitcode.OK {
+		t.Errorf("exit code = %d, want %d: doctor describes rather than grades", code, exitcode.OK)
+	}
+	if stderr != "" {
+		t.Errorf("stderr = %q, want empty", stderr)
+	}
+	if !strings.HasPrefix(stdout, "fleetfix "+version.Version()+"\n") {
+		t.Errorf("a pasted doctor output does not identify its build: %q", stdout)
+	}
+	for _, heading := range []string{
+		"\nHost\n", "\nOperator\n", "\nPrivilege\n", "\nContainer runtime\n",
+		"\nConfiguration\n", "\nThresholds\n", "\nExternal programs\n", "\nChecks\n",
+	} {
+		if !strings.Contains(stdout, heading) {
+			t.Errorf("no %q section:\n%s", strings.TrimSpace(heading), stdout)
+		}
+	}
+}
+
+// M3's exit criterion, asserted at the only level it can be: both front doors
+// running against the same machine, one after the other. Doctor's whole value is
+// that it reports what the collectors graded by, so a number it prints that the
+// report disagrees with is worse than no doctor at all -- it is a support call
+// that ends in "but doctor says".
+//
+// The privilege verdict is the field to pin. It costs a subprocess, it decides
+// whether Tier 2 checks run at all, and it is the one an operator disputes.
+func TestDoctorAndCheckAgreeAboutThisHost(t *testing.T) {
+	doctor, _, _ := run(t, "doctor")
+	reported, _, _ := run(t, "check", "--json", "--check", noMatch)
+	rep := decode(t, reported)
+
+	priv := section(t, doctor, "Privilege")
+	if !contains(priv, fmt.Sprintf("%d", rep.Privilege.UID)) {
+		t.Errorf("doctor's uid is not the report's %d: %v", rep.Privilege.UID, priv)
+	}
+	if !contains(priv, rep.Privilege.Reason) {
+		t.Errorf("doctor's tier 2 reason is not the report's %q: %v", rep.Privilege.Reason, priv)
+	}
+	want := "unavailable"
+	if rep.Privilege.CanTier2 {
+		want = "available"
+	}
+	if !contains(priv, want) {
+		t.Errorf("doctor says tier 2 is not %q, and the report does: %v", want, priv)
+	}
+
+	host := section(t, doctor, "Host")
+	for _, field := range []string{rep.Host.Hostname, rep.Host.Kernel, rep.Host.Arch} {
+		if field != "" && !contains(host, field) {
+			t.Errorf("doctor does not report the host's %q: %v", field, host)
+		}
+	}
+
+	// A warning the report carries and doctor does not is the whole failure mode:
+	// the run fell back to defaults, and the operator asked doctor why.
+	warnings := section(t, doctor, "Configuration warnings")
+	for _, w := range rep.ConfigWarnings {
+		if !contains(warnings, w) {
+			t.Errorf("the report warns %q and doctor does not: %v", w, warnings)
+		}
+	}
+}
+
+// The container runtime is the field the report does not carry in its envelope,
+// so the only place the two commands can be compared on it is the docker domain's
+// own result -- and that is the comparison worth making, because "docker reports
+// unavailable on a host running containers" is the support call doctor exists to
+// answer. Both strings come from the one memoised probe; a divergence here means
+// two resolvers.
+//
+// Self-skipping rather than gated on a build tag: a runner with no docker is a
+// perfectly good host, and this assertion has nothing to say about it.
+func TestDoctorAndCheckAgreeAboutTheContainerRuntime(t *testing.T) {
+	rep := decode(t, mustRun(t, "check", "--json", "--check", "docker.runtime"))
+	if len(rep.Checks) != 1 {
+		t.Fatalf("selecting docker.runtime produced %d results", len(rep.Checks))
+	}
+	got := rep.Checks[0]
+	if got.Status == check.StatusUnavailable || got.Status == check.StatusSkipped {
+		t.Skipf("no container runtime on this host: %s", got.Summary)
+	}
+
+	body := section(t, mustRun(t, "doctor"), "Container runtime")
+	if !contains(body, got.Summary) {
+		t.Errorf("the docker check graded %q and doctor detected: %v", got.Summary, body)
+	}
+}
+
+// The direct guard on registryFor. Two Deps literals would agree until the day
+// one of them gained a field, and then doctor would describe a registry the
+// checks were not built from -- with nothing failing, because both would still
+// compile and run. These two numbers are what would diverge.
+func TestDoctorCountsTheRegistryTheChecksWereBuiltFrom(t *testing.T) {
+	listed, _, _ := run(t, "check", "--list")
+	var listing checkcmd.Listing
+	if err := json.Unmarshal([]byte(listed), &listing); err != nil {
+		t.Fatalf("the listing is not a single JSON document: %v\n%s", err, listed)
+	}
+	if len(listing.Checks) == 0 {
+		t.Fatal("the listing is empty; there is nothing for doctor to disagree with")
+	}
+	domains := map[string]bool{}
+	for _, c := range listing.Checks {
+		domains[c.Domain] = true
+	}
+
+	body := section(t, mustRun(t, "doctor"), "Checks")
+	if want := fmt.Sprintf("%d in %d domains", len(listing.Checks), len(domains)); !contains(body, want) {
+		t.Errorf("doctor does not report %q: %v", want, body)
+	}
+
+	// And the default count against a real default run, so the two front doors
+	// have to agree about which checks a bare `fleetfix check` selects and not
+	// merely about how many exist.
+	ran := decode(t, mustRun(t, "check", "--json"))
+	if want := fmt.Sprintf("default run     %d", len(ran.Checks)); !contains(body, want) {
+		t.Errorf("doctor does not report %q; the default run had %d: %v", want, len(ran.Checks), body)
+	}
+}
+
+// mustRun is for the runs whose output is a means rather than the assertion: a
+// default `check --json` grades this host, so its exit code is whatever the host
+// deserves and is not this test's business.
+func mustRun(t *testing.T, argv ...string) string {
+	t.Helper()
+	stdout, stderr, _ := run(t, argv...)
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	return stdout
+}
+
+// section returns the lines beneath a doctor heading, so an assertion about the
+// privilege verdict cannot be satisfied by a word that appeared in a config path.
+func section(t *testing.T, out, title string) []string {
+	t.Helper()
+	lines := strings.Split(out, "\n")
+	for i, line := range lines {
+		if line != title {
+			continue
+		}
+		var body []string
+		for _, line := range lines[i+1:] {
+			if !strings.HasPrefix(line, "  ") {
+				return body
+			}
+			body = append(body, line)
+		}
+		return body
+	}
+	t.Fatalf("no %q section in:\n%s", title, out)
+	return nil
+}
+
+func contains(lines []string, substr string) bool {
+	for _, line := range lines {
+		if strings.Contains(line, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+// The same contract check honours, for the same reason: the one stream doctor
+// must not put a diagnostic on is the one it writes to.
+func TestAnUnwritableStdoutIsReportedOnStderrByDoctorToo(t *testing.T) {
+	var stderr strings.Builder
+	code := Main([]string{"doctor"}, failingWriter{err: errors.New("broken pipe")}, &stderr)
+
+	if code != exitcode.Unknown {
+		t.Errorf("exit code = %d, want %d", code, exitcode.Unknown)
+	}
+	if !strings.Contains(stderr.String(), "broken pipe") {
+		t.Errorf("stderr does not report the failed write: %q", stderr.String())
+	}
+}
+
+func TestUsageNamesTheDoctorCommand(t *testing.T) {
+	stdout, _, _ := run(t, "--help")
+	if !strings.Contains(stdout, "doctor") {
+		t.Errorf("usage does not mention doctor, so nobody will find it: %q", stdout)
 	}
 }
 
@@ -390,20 +927,65 @@ func TestTheRealBinaryHonoursTheContract(t *testing.T) {
 		}
 	})
 
-	t.Run("check exits unknown with json on stdout", func(t *testing.T) {
+	t.Run("check writes json to stdout and exits on the verdict", func(t *testing.T) {
 		res, err := runner.Run(ctx, bin, "check", "--json")
+		if err != nil {
+			t.Fatalf("running the binary failed: %v", err)
+		}
+		if res.Stderr != "" {
+			t.Errorf("stderr = %q, want empty", res.Stderr)
+		}
+		var rep report.Report
+		if err := json.Unmarshal([]byte(res.Stdout), &rep); err != nil {
+			t.Fatalf("the process's stdout is not a single JSON document: %v\n%s", err, res.Stdout)
+		}
+		if rep.Schema != report.Schema {
+			t.Errorf("schema = %q, want %q", rep.Schema, report.Schema)
+		}
+		if len(rep.Checks) == 0 {
+			t.Error("the shipped binary ran no checks")
+		}
+		// The one line no in-process test can cover: os.Exit. Getting it wrong --
+		// exiting 0 on a crit -- is exactly the failure that lets a cron job report
+		// a broken host healthy.
+		if res.ExitCode != rep.ExitCode {
+			t.Errorf("exit status = %d but the document says %d", res.ExitCode, rep.ExitCode)
+		}
+	})
+
+	t.Run("a run that could not happen exits unknown", func(t *testing.T) {
+		res, err := runner.Run(ctx, bin, "check", "--json", "--check", noMatch)
 		if err != nil {
 			t.Fatalf("running the binary failed: %v", err)
 		}
 		if res.ExitCode != exitcode.Unknown {
 			t.Errorf("exit status = %d, want %d", res.ExitCode, exitcode.Unknown)
 		}
+		var rep report.Report
+		if err := json.Unmarshal([]byte(res.Stdout), &rep); err != nil {
+			t.Fatalf("the process's stdout is not a single JSON document: %v\n%s", err, res.Stdout)
+		}
+		if rep.Error == "" {
+			t.Error("the document does not say why nothing ran")
+		}
+	})
+
+	t.Run("doctor exits zero and describes the host", func(t *testing.T) {
+		res, err := runner.Run(ctx, bin, "doctor")
+		if err != nil {
+			t.Fatalf("running the binary failed: %v", err)
+		}
+		// The line no in-process test can cover for this command. Doctor returning
+		// exitcode.OK and the process exiting non-zero would make it unusable in the
+		// one place it is most wanted: pasted into a ticket from a script.
+		if res.ExitCode != exitcode.OK {
+			t.Errorf("exit status = %d, want %d", res.ExitCode, exitcode.OK)
+		}
 		if res.Stderr != "" {
 			t.Errorf("stderr = %q, want empty", res.Stderr)
 		}
-		var rep checkcmd.Report
-		if err := json.Unmarshal([]byte(res.Stdout), &rep); err != nil {
-			t.Fatalf("the process's stdout is not a single JSON document: %v\n%s", err, res.Stdout)
+		if !strings.Contains(res.Stdout, "\nChecks\n") {
+			t.Errorf("the shipped binary's doctor describes no checks:\n%s", res.Stdout)
 		}
 	})
 

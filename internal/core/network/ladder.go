@@ -31,9 +31,13 @@ const (
 
 // Ladder pings are deliberately shorter than the standalone ping probe: this asks
 // "does anything come back", not "how stable is this link over time".
+//
+// Exported because a caller has to budget for the ladder before running it, and
+// two of the five rungs cost one of these. A collector that guessed the number
+// would guillotine its own ladder the day this changed.
 const (
-	ladderPingCount    int64 = 3
-	ladderPingTimeoutS int64 = 6
+	LadderPingCount    int64 = 3
+	LadderPingTimeoutS int64 = 6
 )
 
 // LadderRung is one layer's verdict.
@@ -180,7 +184,7 @@ func (l Ladder) gatewayRung(label string, net *Info) LadderRung {
 }
 
 func (l Ladder) pingRung(name, label, target string) LadderRung {
-	summary := l.Ping(target, ladderPingCount, ladderPingTimeoutS)
+	summary := l.Ping(target, LadderPingCount, LadderPingTimeoutS)
 	if summary == nil {
 		return LadderRung{Name: name, Label: label, Detail: "ping produced no summary"}
 	}

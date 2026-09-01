@@ -82,6 +82,24 @@ func (f *Fake) Missing(name string, args ...string) *Fake {
 	return f.Fail(fmt.Errorf("%w: %s", ErrNotFound, name), name, args...)
 }
 
+// Partial registers output *and* an error for one argv: a command that was killed
+// having already written something.
+//
+// This is what OS.Run does when the context expires -- it returns the buffers as
+// they stand alongside the context's error -- and without it the Fake cannot
+// reproduce its own counterpart's most consequential behaviour. A traceroute cut
+// off at its wall clock is the case that matters: the hops it printed before the
+// kill are the diagnostic, and a test that could only stage "error, no output"
+// would let a collector that discards them pass.
+func (f *Fake) Partial(res Result, err error, name string, args ...string) *Fake {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	key := Key(name, args...)
+	f.responses[key] = res
+	f.errs[key] = err
+	return f
+}
+
 // Run implements Runner.
 func (f *Fake) Run(ctx context.Context, name string, args ...string) (Result, error) {
 	key := Key(name, args...)
@@ -101,6 +119,11 @@ func (f *Fake) Run(ctx context.Context, name string, args ...string) (Result, er
 	}
 
 	switch {
+	case hasErr && hasRes:
+		// Registered by Partial: output the command managed before it was killed,
+		// returned alongside the reason it was, exactly as OS.Run does.
+		res.Args = argv
+		return res, err
 	case hasErr:
 		return Result{Args: argv}, err
 	case hasRes:

@@ -70,19 +70,35 @@ func TestReadPerfYAML(t *testing.T) {
 	}
 }
 
-// The three loaders are separate functions holding one implementation, so they must
+// The four loaders are separate functions holding one implementation, so they must
 // agree until one of them grows its own validation.
+//
+// otel.yml is in here rather than in a reader test of its own because v1 kept a
+// second, byte-identical copy of the loader in audit/otel.py: the claim worth
+// testing is that collapsing the two changed nothing, and that is a claim about
+// agreement.
 func TestLoadersAgree(t *testing.T) {
 	path := fixture.Path("probes/full_example.yml")
 	probes, _ := ReadProbesYAML(path)
-	paths, _ := ReadPathsYAML(path)
-	perf, _ := ReadPerfYAML(path)
-	if diff := cmp.Diff(probes, paths); diff != "" {
-		t.Errorf("probes vs paths (-a +b):\n%s", diff)
+	others := map[string]map[string]any{
+		"paths": mustRead(t, ReadPathsYAML, path),
+		"perf":  mustRead(t, ReadPerfYAML, path),
+		"otel":  mustRead(t, ReadOtelYAML, path),
 	}
-	if diff := cmp.Diff(probes, perf); diff != "" {
-		t.Errorf("probes vs perf (-a +b):\n%s", diff)
+	for name, got := range others {
+		if diff := cmp.Diff(probes, got); diff != "" {
+			t.Errorf("probes vs %s (-probes +%s):\n%s", name, name, diff)
+		}
 	}
+}
+
+func mustRead(t *testing.T, read func(string) (map[string]any, error), path string) map[string]any {
+	t.Helper()
+	got, err := read(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	return got
 }
 
 // A per-host override that is simply absent is the normal case, not a problem, so
@@ -104,18 +120,26 @@ func TestReadYAMLMappingMissingFileIsSilent(t *testing.T) {
 	}
 }
 
-func TestReadYAMLMappingUnreadableFileIsSilent(t *testing.T) {
+// A file that is there and will not open is the other case the operator has to
+// be told about. v1 caught it with absence and said nothing, so a root-owned
+// /etc/fleetfix override read as "you never wrote one". The map is still empty,
+// which is what keeps every v1 call site working; only the report gets louder.
+func TestReadYAMLMappingUnreadableFileWarnsAndReturns(t *testing.T) {
 	log := captureWarnings(t)
-	// A directory: os.ReadFile fails with EISDIR, which is an OSError to v1.
+	// A directory: os.ReadFile fails with EISDIR, which is an OSError to v1, and
+	// unlike a mode bit it fails the same way for root.
 	got, err := ReadProbesYAML(t.TempDir())
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
+	if err == nil {
+		t.Fatal("want an error")
 	}
 	if len(got) != 0 {
 		t.Errorf("got %#v, want an empty map", got)
 	}
-	if log.Len() != 0 {
-		t.Errorf("an unreadable file logged: %s", log)
+	if got == nil {
+		t.Error("returned a nil map; callers index it without checking")
+	}
+	if log.Len() == 0 {
+		t.Error("an unreadable file was silent")
 	}
 }
 

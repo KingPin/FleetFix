@@ -119,7 +119,12 @@ def test_repeated_fixture_references_agree_on_the_checksum() -> None:
 # directly. It is not fed through the two oracles, because the thing under test is
 # the decoder rather than a parser built on one, so a manifest case for it would
 # have no function to name.
-NON_FIXTURE_DIRS = {"pyyaml"}
+#
+# schema/ holds the published JSON Schema for the Go check envelope
+# (fleetfix.check.v1.json). It is a contract the Go side validates its own output
+# against, not a captured command output, so there is no oracle function for a
+# case to name and nothing for the two implementations to disagree about.
+NON_FIXTURE_DIRS = {"pyyaml", "schema"}
 
 
 def test_every_fixture_on_disk_is_referenced_by_a_case() -> None:

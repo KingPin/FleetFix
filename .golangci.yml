@@ -67,6 +67,12 @@ linters:
                 go-cmp is documented as test-only and panics on unexported fields
                 rather than returning an error; production comparisons must not
                 depend on it
+            - pkg: github.com/santhosh-tekuri/jsonschema/v6
+              desc: >-
+                the JSON Schema validator exists to prove the checked-in contract
+                describes what internal/report marshals; the binary emits the
+                document rather than validating it, and linking a schema compiler
+                and a regexp engine into it would pay for a check nobody runs
 
         # tools/ is exempt because the constraint is about the shipped decoder:
         # operator-facing YAML must stay behind one package so swapping decoders
