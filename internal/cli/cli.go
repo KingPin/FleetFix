@@ -23,6 +23,7 @@ import (
 	"github.com/KingPin/FleetFix/v2/internal/check/builtin"
 	"github.com/KingPin/FleetFix/v2/internal/cli/checkcmd"
 	"github.com/KingPin/FleetFix/v2/internal/cli/doctorcmd"
+	"github.com/KingPin/FleetFix/v2/internal/cli/updatecmd"
 	"github.com/KingPin/FleetFix/v2/internal/exitcode"
 	"github.com/KingPin/FleetFix/v2/internal/logging"
 	"github.com/KingPin/FleetFix/v2/internal/resolve"
@@ -113,6 +114,8 @@ func Main(argv []string, stdout, stderr io.Writer) int {
 		return runCheck(args[1:], stdout, stderr)
 	case "doctor":
 		return runDoctor(args[1:], stdout, stderr, log.Destination)
+	case "update":
+		return runUpdate(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "fleetfix: unknown command %q\n", args[0])
 		usage(stderr, fs)
@@ -270,6 +273,58 @@ func runDoctor(argv []string, stdout, stderr io.Writer, logDestination string) i
 	return code
 }
 
+// runUpdate reports the latest release and, with --apply, installs it.
+func runUpdate(argv []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("fleetfix update", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() {}
+
+	apply := fs.Bool("apply", false,
+		"Download, verify and install the release. Without it, nothing is installed.")
+
+	if err := fs.Parse(argv); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			updateUsage(stdout, fs)
+			return exitcode.OK
+		}
+		fmt.Fprintln(stderr, "run `fleetfix update --help` for usage.")
+		return exitcode.Unknown
+	}
+	if rest := fs.Args(); len(rest) > 0 {
+		fmt.Fprintf(stderr, "fleetfix update: unexpected argument %q\n", rest[0])
+		return exitcode.Unknown
+	}
+
+	code, err := updatecmd.Run(context.Background(), updatecmd.Options{
+		Stdout:   stdout,
+		Version:  version.Version(),
+		Resolved: resolve.New(resolve.Options{}),
+		Apply:    *apply,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "fleetfix update: %v\n", err)
+	}
+	return code
+}
+
+// updateUsage spells out what --apply does, because the flag is the confirmation.
+func updateUsage(w io.Writer, fs *flag.FlagSet) {
+	fmt.Fprint(w, `Usage: fleetfix update [--apply]
+
+Ask GitHub for the latest release and compare it with this build.
+
+Without --apply nothing is downloaded or installed: the command reports what is
+available and exits. With it, the release asset is downloaded, checked against
+the SHA256 the release published, and swapped over the running binary -- using
+sudo only if the binary's directory needs it. FleetFix is never restarted for
+you.
+
+Flags:
+`)
+	fs.SetOutput(w)
+	fs.PrintDefaults()
+}
+
 // registryFor assembles this build's checks over an already-resolved host.
 //
 // One function rather than a Deps literal in each front door, and that is not
@@ -317,6 +372,7 @@ Triage toolbox for Ubuntu/Debian fleet operators.
 Commands:
   check     Collect host health and write JSON to stdout.
   doctor    Describe this host, its configuration and what check would run.
+  update    Report the latest release, and install it with --apply.
   help      Show this help.
 
 Flags:

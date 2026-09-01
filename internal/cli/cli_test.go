@@ -101,6 +101,8 @@ func TestUsageErrorsExitUnknownAndWriteNothingToStdout(t *testing.T) {
 		{"doctor with a stray word", []string{"doctor", "network"}, "unexpected argument"},
 		{"check with json disabled", []string{"check", "--json=false"}, "only output mode"},
 		{"check with an unknown flag", []string{"check", "--prom"}, "prom"},
+		{"update with a stray argument", []string{"update", "now"}, "unexpected argument"},
+		{"update with an unknown flag", []string{"update", "--force"}, "force"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -825,10 +827,74 @@ func TestAnUnwritableStdoutIsReportedOnStderrByDoctorToo(t *testing.T) {
 	}
 }
 
-func TestUsageNamesTheDoctorCommand(t *testing.T) {
+func TestUsageNamesEverySubcommand(t *testing.T) {
 	stdout, _, _ := run(t, "--help")
-	if !strings.Contains(stdout, "doctor") {
-		t.Errorf("usage does not mention doctor, so nobody will find it: %q", stdout)
+	for _, name := range []string{"check", "doctor", "update"} {
+		if !strings.Contains(stdout, name) {
+			t.Errorf("usage does not mention %s, so nobody will find it: %q", name, stdout)
+		}
+	}
+}
+
+// update --help describes what --apply does, because the flag is the only
+// confirmation there is: an operator who reads this and runs the command without
+// it must be certain nothing was replaced.
+func TestUpdateHelpSaysThatNothingIsInstalledWithoutApply(t *testing.T) {
+	for _, argv := range [][]string{{"update", "--help"}, {"update", "-h"}} {
+		t.Run(strings.Join(argv, " "), func(t *testing.T) {
+			stdout, stderr, code := run(t, argv...)
+
+			if code != exitcode.OK {
+				t.Errorf("exit code = %d, want %d", code, exitcode.OK)
+			}
+			if !strings.Contains(stdout, "Usage: fleetfix update") {
+				t.Errorf("stdout does not carry the update usage: %q", stdout)
+			}
+			if !strings.Contains(stdout, "--apply") {
+				t.Errorf("update usage does not name --apply: %q", stdout)
+			}
+			if !strings.Contains(stdout, "nothing is downloaded or installed") {
+				t.Errorf("update usage does not say the default installs nothing: %q", stdout)
+			}
+			// Help was asked for, so it is output, not a diagnostic.
+			if stderr != "" {
+				t.Errorf("stderr = %q, want empty", stderr)
+			}
+		})
+	}
+}
+
+// The wiring, not the answer. Whether GitHub is reachable from wherever this runs
+// is not this package's business; what is, is that `update` without --apply ends
+// in exactly one of two shapes -- a report and zero, or a diagnostic and unknown
+// -- and never a half-written line followed by an error.
+//
+// The one live request this makes is a GET of the releases endpoint. It installs
+// nothing: --apply is the only path that downloads, and it is not passed here.
+func TestUpdateEitherReportsOrExplainsItself(t *testing.T) {
+	// Kept off the real cache directory, so a test run does not leave an answer
+	// behind for the next launch banner to read.
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	stdout, stderr, code := run(t, "update")
+
+	switch code {
+	case exitcode.OK:
+		if !strings.Contains(stdout, "fleetfix") {
+			t.Errorf("stdout does not report a version: %q", stdout)
+		}
+		if stderr != "" {
+			t.Errorf("stderr = %q, want empty beside a successful report", stderr)
+		}
+	case exitcode.Unknown:
+		if stdout != "" {
+			t.Errorf("stdout = %q, want empty when the check could not be made", stdout)
+		}
+		if !strings.Contains(stderr, "fleetfix update:") {
+			t.Errorf("stderr does not name the command that failed: %q", stderr)
+		}
+	default:
+		t.Errorf("exit code = %d, want %d or %d", code, exitcode.OK, exitcode.Unknown)
 	}
 }
 

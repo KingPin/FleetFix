@@ -106,6 +106,40 @@ $heading
 done
 note "doctor exited 0 with every section"
 
+# --- update -------------------------------------------------------------------
+# --help first, because it is the half that does not depend on the network: it
+# proves the subcommand reached the shipped binary, and it must say that the
+# default installs nothing -- the flag is the only confirmation there is.
+capture update --help
+[ "$code" = "0" ] || bad "update --help exited $code"
+[ -z "$err" ] || bad "update --help wrote to stderr: $err"
+case "$out" in
+*'--apply'*) ;;
+*) bad "update --help does not name --apply" ;;
+esac
+case "$out" in
+*'nothing is downloaded or installed'*) ;;
+*) bad "update --help does not say the default installs nothing" ;;
+esac
+
+# And the command itself, asserted on its shape rather than its answer: whether
+# this container can reach the releases API is not what is under test. Nothing is
+# installed -- --apply is the only path that downloads, and it is not passed.
+capture update
+case "$code" in
+0)
+	[ -n "$out" ] || bad "update exited 0 and reported nothing"
+	[ -z "$err" ] || bad "update reported and still wrote to stderr: $err"
+	note "update reported on stdout and exited 0"
+	;;
+3)
+	[ -z "$out" ] || bad "update could not answer and still wrote to stdout: $out"
+	[ -n "$err" ] || bad "update exited 3 and explained nothing"
+	note "update could not reach the releases API and said so on stderr"
+	;;
+*) bad "update exited $code; it reports or explains, nothing else" ;;
+esac
+
 # --- a usage error ------------------------------------------------------------
 # The hard half of the stream contract: a consumer's parser sees an empty stdout
 # and a non-zero code, never a half-written document.
