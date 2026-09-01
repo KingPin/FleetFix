@@ -1,0 +1,537 @@
+{
+  "bool false": [
+    "bool",
+    "false"
+  ],
+  "bool true": [
+    "bool",
+    "true"
+  ],
+  "float below exp lower edge": [
+    "float",
+    "9.999e-05"
+  ],
+  "float below exp upper edge": [
+    "float",
+    "9999999999999998.0"
+  ],
+  "float exp lower edge": [
+    "float",
+    "0.0001"
+  ],
+  "float exp upper edge": [
+    "float",
+    "1e+16"
+  ],
+  "float half": [
+    "float",
+    "0.5"
+  ],
+  "float inf": [
+    "float",
+    "inf"
+  ],
+  "float integral": [
+    "float",
+    "3.0"
+  ],
+  "float nan": [
+    "float",
+    "nan"
+  ],
+  "float negative exponent": [
+    "float",
+    "-2.5e-07"
+  ],
+  "float negative inf": [
+    "float",
+    "-inf"
+  ],
+  "float negative zero": [
+    "float",
+    "-0.0"
+  ],
+  "float one point five": [
+    "float",
+    "1.5"
+  ],
+  "float repr shortest": [
+    "float",
+    "0.1"
+  ],
+  "float third": [
+    "float",
+    "0.3333333333333333"
+  ],
+  "float zero": [
+    "float",
+    "0.0"
+  ],
+  "int int64 max": [
+    "int",
+    "9223372036854775807"
+  ],
+  "int int64 min": [
+    "int",
+    "-9223372036854775808"
+  ],
+  "int large": [
+    "int",
+    "9007199254740993"
+  ],
+  "int negative": [
+    "int",
+    "-1"
+  ],
+  "int one": [
+    "int",
+    "1"
+  ],
+  "int zero": [
+    "int",
+    "0"
+  ],
+  "list empty": [
+    "list",
+    []
+  ],
+  "list ints": [
+    "list",
+    [
+      [
+        "int",
+        "1"
+      ],
+      [
+        "int",
+        "2"
+      ],
+      [
+        "int",
+        "3"
+      ]
+    ]
+  ],
+  "list mixed": [
+    "list",
+    [
+      [
+        "int",
+        "1"
+      ],
+      [
+        "str",
+        "two"
+      ],
+      [
+        "null",
+        ""
+      ],
+      [
+        "bool",
+        "true"
+      ],
+      [
+        "float",
+        "3.5"
+      ]
+    ]
+  ],
+  "list nested": [
+    "list",
+    [
+      [
+        "list",
+        [
+          [
+            "int",
+            "1"
+          ],
+          [
+            "list",
+            [
+              [
+                "int",
+                "2"
+              ]
+            ]
+          ]
+        ]
+      ],
+      [
+        "list",
+        []
+      ]
+    ]
+  ],
+  "list of strings": [
+    "list",
+    [
+      [
+        "str",
+        "a"
+      ],
+      [
+        "str",
+        "b"
+      ]
+    ]
+  ],
+  "map empty": [
+    "map",
+    []
+  ],
+  "map key needs escaping": [
+    "map",
+    [
+      [
+        "a \"key\"\n",
+        [
+          "int",
+          "1"
+        ]
+      ]
+    ]
+  ],
+  "map nested": [
+    "map",
+    [
+      [
+        "outer",
+        [
+          "map",
+          [
+            [
+              "inner",
+              [
+                "list",
+                [
+                  [
+                    "int",
+                    "1"
+                  ],
+                  [
+                    "map",
+                    [
+                      [
+                        "deep",
+                        [
+                          "null",
+                          ""
+                        ]
+                      ]
+                    ]
+                  ]
+                ]
+              ]
+            ]
+          ]
+        ]
+      ]
+    ]
+  ],
+  "map non ascii key": [
+    "map",
+    [
+      [
+        "caf\u00e9",
+        [
+          "str",
+          "\u65e5"
+        ]
+      ]
+    ]
+  ],
+  "map one": [
+    "map",
+    [
+      [
+        "mode",
+        [
+          "str",
+          "cli"
+        ]
+      ]
+    ]
+  ],
+  "map two": [
+    "map",
+    [
+      [
+        "path",
+        [
+          "str",
+          "/var/cache/apt"
+        ]
+      ],
+      [
+        "bytes",
+        [
+          "int",
+          "4096"
+        ]
+      ]
+    ]
+  ],
+  "map value types": [
+    "map",
+    [
+      [
+        "s",
+        [
+          "str",
+          "x"
+        ]
+      ],
+      [
+        "i",
+        [
+          "int",
+          "7"
+        ]
+      ],
+      [
+        "f",
+        [
+          "float",
+          "1.25"
+        ]
+      ],
+      [
+        "b",
+        [
+          "bool",
+          "false"
+        ]
+      ],
+      [
+        "n",
+        [
+          "null",
+          ""
+        ]
+      ],
+      [
+        "l",
+        [
+          "list",
+          [
+            [
+              "int",
+              "1"
+            ]
+          ]
+        ]
+      ],
+      [
+        "m",
+        [
+          "map",
+          [
+            [
+              "k",
+              [
+                "str",
+                "v"
+              ]
+            ]
+          ]
+        ]
+      ]
+    ]
+  ],
+  "null": [
+    "null",
+    ""
+  ],
+  "operator block": [
+    "map",
+    [
+      [
+        "unix_user",
+        [
+          "str",
+          "opsadmin"
+        ]
+      ],
+      [
+        "auth_principal",
+        [
+          "null",
+          ""
+        ]
+      ],
+      [
+        "source_ip",
+        [
+          "str",
+          "10.0.0.9"
+        ]
+      ]
+    ]
+  ],
+  "result block": [
+    "map",
+    [
+      [
+        "ok",
+        [
+          "bool",
+          "true"
+        ]
+      ],
+      [
+        "error",
+        [
+          "null",
+          ""
+        ]
+      ],
+      [
+        "freed_bytes",
+        [
+          "int",
+          "1073741824"
+        ]
+      ]
+    ]
+  ],
+  "result failure block": [
+    "map",
+    [
+      [
+        "ok",
+        [
+          "bool",
+          "false"
+        ]
+      ],
+      [
+        "error",
+        [
+          "str",
+          "sha256 mismatch"
+        ]
+      ]
+    ]
+  ],
+  "str ampersand in url": [
+    "str",
+    "https://example.test/a?b=1&c=2"
+  ],
+  "str ascii": [
+    "str",
+    "web-01"
+  ],
+  "str backslash": [
+    "str",
+    "C:\\path\\to"
+  ],
+  "str backspace": [
+    "str",
+    "a\bb"
+  ],
+  "str bom": [
+    "str",
+    "\ufeffhost"
+  ],
+  "str carriage return": [
+    "str",
+    "a\rb"
+  ],
+  "str cjk": [
+    "str",
+    "\u65e5\u672c\u8a9e"
+  ],
+  "str combining": [
+    "str",
+    "e\u0301"
+  ],
+  "str control 0x01": [
+    "str",
+    "a\u0001b"
+  ],
+  "str control 0x1f": [
+    "str",
+    "a\u001fb"
+  ],
+  "str del 0x7f": [
+    "str",
+    "a\u007fb"
+  ],
+  "str emoji": [
+    "str",
+    "\ud83d\udea2 fleet"
+  ],
+  "str empty": [
+    "str",
+    ""
+  ],
+  "str every short escape": [
+    "str",
+    "\\\"\b\f\n\r\t"
+  ],
+  "str formfeed": [
+    "str",
+    "a\fb"
+  ],
+  "str html chars": [
+    "str",
+    "<script>&</script>"
+  ],
+  "str latin1": [
+    "str",
+    "caf\u00e9"
+  ],
+  "str line separator": [
+    "str",
+    "a\u2028b"
+  ],
+  "str nbsp": [
+    "str",
+    "a\u00a0b"
+  ],
+  "str newline": [
+    "str",
+    "line1\nline2"
+  ],
+  "str nul": [
+    "str",
+    "a\u0000b"
+  ],
+  "str paragraph separator": [
+    "str",
+    "a\u2029b"
+  ],
+  "str path with spaces": [
+    "str",
+    "/var/log/my logs/app.log"
+  ],
+  "str quote": [
+    "str",
+    "a \"quoted\" word"
+  ],
+  "str tab": [
+    "str",
+    "a\tb"
+  ],
+  "target block": [
+    "map",
+    [
+      [
+        "path",
+        [
+          "str",
+          "/var/log/nginx/access.log.1"
+        ]
+      ],
+      [
+        "bytes",
+        [
+          "int",
+          "1073741824"
+        ]
+      ]
+    ]
+  ]
+}
