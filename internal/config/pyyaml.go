@@ -397,7 +397,7 @@ func mapKey(v any, n *yaml.Node) (string, error) {
 	case *big.Int:
 		return t.String(), nil
 	case float64:
-		return jsonFloat(t), nil
+		return PyJSONFloat(t), nil
 	case string:
 		return t, nil
 	case []byte, time.Time:
@@ -408,29 +408,6 @@ func mapKey(v any, n *yaml.Node) (string, error) {
 		// A list or a mapping. PyYAML raises "found unhashable key".
 		return "", errUnhashableKey
 	}
-}
-
-// jsonFloat spells a float the way Python's json.dumps does: repr for finite
-// values, and the JavaScript-flavoured Infinity/NaN words for the rest.
-func jsonFloat(f float64) string {
-	switch {
-	case math.IsNaN(f):
-		return "NaN"
-	case math.IsInf(f, 1):
-		return "Infinity"
-	case math.IsInf(f, -1):
-		return "-Infinity"
-	}
-	// Python's repr switches to exponential outside [1e-4, 1e16); Go's %g picks
-	// its own thresholds, so the choice is made here instead.
-	if abs := math.Abs(f); abs != 0 && (abs < 1e-4 || abs >= 1e16) {
-		return strconv.FormatFloat(f, 'e', -1, 64)
-	}
-	s := strconv.FormatFloat(f, 'f', -1, 64)
-	if !strings.Contains(s, ".") {
-		s += ".0"
-	}
-	return s
 }
 
 // --- the implicit resolver -------------------------------------------------

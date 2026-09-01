@@ -86,7 +86,7 @@ func PyStr(v any) string {
 	case *big.Int:
 		return t.String()
 	case float64:
-		// str() and repr() agree for floats, and jsonFloat is repr for every finite
+		// str() and repr() agree for floats, and PyJSONFloat is repr for every finite
 		// one. The three non-finite spellings are where JSON and Python part company:
 		// json.dumps writes Infinity, str() writes inf.
 		switch {
@@ -97,7 +97,7 @@ func PyStr(v any) string {
 		case math.IsInf(t, -1):
 			return "-inf"
 		}
-		return jsonFloat(t)
+		return PyJSONFloat(t)
 	case string:
 		return t
 	case time.Time:
@@ -250,4 +250,33 @@ func pyQuoteChar(s string) byte {
 		return '"'
 	}
 	return '\''
+}
+
+// PyJSONFloat spells a float the way Python's json.dumps writes it: repr for
+// every finite value, and the JavaScript-flavoured Infinity/NaN words for the
+// rest -- which is Python's non-standard extension, not JSON.
+//
+// Exported, unlike the rest of this file's helpers, because the audit trail is
+// the other place a Go process has to produce bytes a Python one would have
+// produced. Two spellings of the same float in one repository would be two
+// answers to "did the trail change across the upgrade?".
+func PyJSONFloat(f float64) string {
+	switch {
+	case math.IsNaN(f):
+		return "NaN"
+	case math.IsInf(f, 1):
+		return "Infinity"
+	case math.IsInf(f, -1):
+		return "-Infinity"
+	}
+	// Python's repr switches to exponential outside [1e-4, 1e16); Go's %g picks
+	// its own thresholds, so the choice is made here instead.
+	if abs := math.Abs(f); abs != 0 && (abs < 1e-4 || abs >= 1e16) {
+		return strconv.FormatFloat(f, 'e', -1, 64)
+	}
+	s := strconv.FormatFloat(f, 'f', -1, 64)
+	if !strings.Contains(s, ".") {
+		s += ".0"
+	}
+	return s
 }
