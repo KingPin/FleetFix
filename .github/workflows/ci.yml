@@ -370,18 +370,12 @@ jobs:
           CGO_ENABLED: "0"
         run: go build -trimpath -o /tmp/fleetfix ./cmd/fleetfix
 
+      # Both legs run the same script, which is the point of it being a script:
+      # the contract this job asserts lives in one file a developer can run
+      # against a container on their laptop, rather than in YAML that can only
+      # be exercised by pushing.
       - name: Run as root
-        run: |
-          set -eu
-          /tmp/fleetfix --version
-          # check exits 3 in this build (nothing is registered yet), so the exit
-          # code is asserted rather than relied on to be zero.
-          set +e
-          out="$(/tmp/fleetfix check --json)"
-          code=$?
-          set -e
-          test "$code" = "3" || { echo "::error::check exited $code, want 3"; exit 1; }
-          echo "$out" | grep -q '"schema"'
+        run: sh .github/scripts/smoke.sh /tmp/fleetfix
 
       - name: Run as an unprivileged user
         run: |
@@ -392,6 +386,13 @@ jobs:
           else
             adduser -D probe || true
           fi
-          chmod 0755 /tmp/fleetfix
-          su probe -c '/tmp/fleetfix --version'
-          su probe -c '/tmp/fleetfix check --json > /dev/null; test $? = 3'
+          # Copied out of the root-owned checkout for the same reason the binary
+          # already is: probe has to be able to read both, whatever the workspace
+          # permissions happen to be.
+          cp .github/scripts/smoke.sh /tmp/smoke.sh
+          chmod 0755 /tmp/fleetfix /tmp/smoke.sh
+          # The script's stderr spool is created by whoever ran it last. Root's
+          # copy is mode 644, so probe could not overwrite it and every case
+          # would report an empty stderr.
+          rm -f /tmp/smoke-err
+          su probe -c 'sh /tmp/smoke.sh /tmp/fleetfix'
