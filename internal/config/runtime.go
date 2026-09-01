@@ -23,6 +23,14 @@ const AuditFallbackFile = "audit.log"
 // directory, so a relaunch loop does not hammer GitHub.
 const ReleaseCacheFile = "release_check.json"
 
+// GitHubReleasesURL is where the updater asks what the latest release is.
+//
+// Not configurable, and here rather than in internal/updater so it sits beside the
+// cache file it feeds. An operator who could repoint it could point a fleet's
+// self-update at a repository they control, which is the whole supply chain for
+// every host running this binary. A fork changes the constant and rebuilds.
+const GitHubReleasesURL = "https://api.github.com/repos/KingPin/FleetFix/releases/latest"
+
 // AuditPath reports where this process should write its audit trail, and why it
 // is not writing to /var/log when it is not.
 //

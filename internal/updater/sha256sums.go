@@ -1,6 +1,3 @@
-// Package updater reads the metadata a release publishes about itself.
-//
-// Only the parsing lives here for now; the checker and the installer land at M4.
 package updater
 
 import (
