@@ -220,9 +220,9 @@ func TestSinkFailureDoesNotFailTheLocalWrite(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.log")
 	var reported []string
 	w, err := New(Options{
-		Path:        path,
-		Sink:        func(Record) error { return errors.New("collector unreachable") },
-		OnSinkError: func(e error) { reported = append(reported, e.Error()) },
+		Path:    path,
+		Sink:    func(Record) error { return errors.New("collector unreachable") },
+		OnError: func(e error) { reported = append(reported, e.Error()) },
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -243,9 +243,9 @@ func TestSinkPanicDoesNotFailTheLocalWrite(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.log")
 	var reported []string
 	w, err := New(Options{
-		Path:        path,
-		Sink:        func(Record) error { panic("exporter closed") },
-		OnSinkError: func(e error) { reported = append(reported, e.Error()) },
+		Path:    path,
+		Sink:    func(Record) error { panic("exporter closed") },
+		OnError: func(e error) { reported = append(reported, e.Error()) },
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -418,7 +418,7 @@ func TestInspectTargetIsStampedOnEveryRecord(t *testing.T) {
 
 // A write failure is not fn's failure. The caller asked whether the action
 // worked; "the disk filled while recording that it did" is a different question,
-// and it goes to OnSinkError.
+// and it goes to OnError.
 func TestDoReturnsTheActionsErrorEvenWhenTheTrailCannotBeWritten(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("running as root: the trail stays writable")
@@ -428,7 +428,7 @@ func TestDoReturnsTheActionsErrorEvenWhenTheTrailCannotBeWritten(t *testing.T) {
 	w := fixedWriter(t, path)
 
 	var reported []string
-	w.opts.OnSinkError = func(e error) { reported = append(reported, e.Error()) }
+	w.opts.OnError = func(e error) { reported = append(reported, e.Error()) }
 	// Remove before the chmod, not after: an existing file the process owns stays
 	// openable for append inside a read-only directory, so it is the O_CREATE that
 	// has to fail.
@@ -446,6 +446,13 @@ func TestDoReturnsTheActionsErrorEvenWhenTheTrailCannotBeWritten(t *testing.T) {
 	}
 	if len(reported) == 0 {
 		t.Fatal("the write failure was not reported anywhere")
+	}
+	// The prefix is documented on Options.OnError as how a handler tells a local
+	// write apart from a sink, so it is part of the contract, not decoration.
+	for _, r := range reported {
+		if !strings.HasPrefix(r, "audit write: ") {
+			t.Errorf("reported %q, want the documented \"audit write: \" prefix", r)
+		}
 	}
 }
 

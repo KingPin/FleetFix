@@ -65,7 +65,7 @@ func (f *Fields) Set(key string, value any) {
 // A Sink is a best-effort secondary destination for each record.
 //
 // It runs outside the writer's lock and its error is reported to the writer's
-// OnSinkError rather than returned, because the local file is authoritative: a
+// OnError rather than returned, because the local file is authoritative: a
 // collector that has gone away must not be able to slow down, block, or fail a
 // local write. That is a standing constraint on this package, not a tuning
 // choice -- an audit trail that stops when the network does is not an audit
@@ -135,10 +135,18 @@ type Options struct {
 	// Sink is the optional OTLP export. Nil means local-only.
 	Sink Sink
 
-	// OnSinkError is called when Sink returns or panics. Nil discards, which is
-	// what v1's logging.exception amounted to for a process with no handler
+	// OnError is called for a failure the writer has nowhere to return: a Sink
+	// that returned or panicked, and a local write from inside Do, whose error
+	// must not displace the wrapped function's own. Nil discards, which is what
+	// v1's logging.exception amounted to for a process with no handler
 	// configured.
-	OnSinkError func(error)
+	//
+	// One handler for both, because the two are the same event to whoever reads
+	// it -- something in the audit path failed and no return value carried it.
+	// A caller that treats them differently can tell them apart: a local write
+	// arrives wrapped as "audit write", a sink as "audit sink", and errors.Is
+	// still reaches the cause through either.
+	OnError func(error)
 
 	// Now and NewID exist so a test can assert on the exact bytes of a record.
 	// Nil means the real clock and a real UUID.
@@ -255,12 +263,12 @@ func (c *Call) SetResult(key string, value any) { c.result.Set(key, value) }
 // what a reader of a Go binary's trail would search for.
 //
 // The returned error is fn's. A failure to write either audit line is reported
-// through OnWriteError rather than replacing it: the caller asked to do
+// through OnError rather than replacing it: the caller asked to do
 // something, and "the disk filled while recording that it worked" is not an
 // answer to whether it worked.
 func (w *Writer) Do(action string, target Fields, fn func(*Call) error) error {
 	call := &Call{id: w.nextID()}
-	w.report(w.write(Record{
+	w.reportWrite(w.write(Record{
 		CallID: call.id,
 		Phase:  PhaseIntent,
 		Action: action,
@@ -294,7 +302,7 @@ func (w *Writer) finish(call *Call, action string, target Fields, err error) {
 	for _, f := range call.result {
 		result.Set(f.Key, f.Value)
 	}
-	w.report(w.write(Record{
+	w.reportWrite(w.write(Record{
 		CallID:    call.id,
 		Phase:     PhaseResult,
 		Action:    action,
@@ -345,10 +353,20 @@ func (w *Writer) emit(rec Record) {
 
 // report hands a non-fatal failure to the caller's handler, if there is one.
 func (w *Writer) report(err error) {
-	if err == nil || w.opts.OnSinkError == nil {
+	if err == nil || w.opts.OnError == nil {
 		return
 	}
-	w.opts.OnSinkError(err)
+	w.opts.OnError(err)
+}
+
+// reportWrite is report for a local write that had nowhere to be returned. The
+// prefix is what lets a handler that cares distinguish it from a sink failure;
+// see Options.OnError.
+func (w *Writer) reportWrite(err error) {
+	if err == nil {
+		return
+	}
+	w.report(fmt.Errorf("audit write: %w", err))
 }
 
 // appendLine opens, appends and closes, which is one syscall more than holding
