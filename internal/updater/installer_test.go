@@ -268,6 +268,38 @@ func TestTheStagedDownloadIsRemovedEitherWay(t *testing.T) {
 	}
 }
 
+// A release version is a tag off the internet, and a tag may contain a slash.
+// Whatever it says, the download lands inside the private staging directory --
+// the point of making that directory is lost if a version string can name its
+// way out of it.
+func TestTheStagedPathStaysInsideTheStagingDirectory(t *testing.T) {
+	for _, version := range []string{"2.1.0", "../../etc/cron.d/fleetfix", "release/2.1.0", ".."} {
+		t.Run(version, func(t *testing.T) {
+			i, rel := installer(t)
+			rel.Version = version
+
+			var dest string
+			download := i.Download
+			i.Download = func(ctx context.Context, url, d string) error {
+				dest = d
+				return download(ctx, url, d)
+			}
+
+			if _, err := i.Apply(t.Context(), trailWriterOnly(t), rel); err != nil {
+				t.Fatalf("Apply: %v", err)
+			}
+
+			rooted, err := filepath.Rel(i.StagingDir, dest)
+			if err != nil {
+				t.Fatalf("relating %q to the staging directory: %v", dest, err)
+			}
+			if strings.HasPrefix(rooted, "..") {
+				t.Errorf("staged at %q, which is outside %q", dest, i.StagingDir)
+			}
+		})
+	}
+}
+
 // The intent line is written before anything is downloaded, so a host that dies
 // mid-update still records which version was going over which.
 func TestTheTrailNamesBothVersionsAndTheTarget(t *testing.T) {

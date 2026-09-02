@@ -203,7 +203,7 @@ func (i *Installer) Apply(ctx context.Context, w *audit.Writer, rel Release) (In
 		{Key: "asset_url", Value: rel.AssetURL},
 		{Key: "target", Value: target},
 	}, func(call *audit.Call) error {
-		staged, cleanup, err := i.stage(rel.Version)
+		staged, cleanup, err := i.stage()
 		if err != nil {
 			return fmt.Errorf("could not stage the download: %w", err)
 		}
@@ -253,12 +253,18 @@ func (i *Installer) Apply(ctx context.Context, w *audit.Writer, rel Release) (In
 // could have left a symlink there and had the download follow it. The digest check
 // protects what gets installed; it does nothing about what gets overwritten on the
 // way. A 0o700 directory this process just created cannot be pre-seeded.
-func (i *Installer) stage(release string) (string, func(), error) {
+//
+// The filename is fixed, where v1 spelled the version into it. The version reaches
+// us from a release tag, and a tag is allowed to contain a slash: joining one into
+// a path would resolve outside the directory this function went to the trouble of
+// making private. The directory name is already unique per call, so the version in
+// the filename bought nothing.
+func (i *Installer) stage() (string, func(), error) {
 	dir, err := os.MkdirTemp(i.StagingDir, "fleetfix-update-")
 	if err != nil {
 		return "", nil, err
 	}
-	return filepath.Join(dir, "fleetfix."+release+".new"), func() { _ = os.RemoveAll(dir) }, nil
+	return filepath.Join(dir, "fleetfix.new"), func() { _ = os.RemoveAll(dir) }, nil
 }
 
 func (i *Installer) download(ctx context.Context, url, dest string) error {
