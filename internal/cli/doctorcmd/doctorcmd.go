@@ -121,6 +121,30 @@ func write(ctx context.Context, b *strings.Builder, opts Options) {
 		field("source ip", r.Operator.SourceIP),
 	})
 
+	// Opening the trail is the only way to learn whether it can be opened:
+	// /var/log exists and is root-owned on every target distro, so a stat says
+	// nothing and a permission check that raced the open would answer for a
+	// moment that has passed. doctor is the one front door allowed to pay that
+	// cost -- `check --json` runs from a scheduler and must leave nothing behind.
+	auditLines := []string{}
+	switch w, err := r.Audit(); {
+	case err != nil:
+		auditLines = append(
+			auditLines,
+			field("path", "unwritable"),
+			field("error", err.Error()),
+		)
+	default:
+		auditLines = append(auditLines, field("path", w.Path()))
+		if reason := r.AuditFallback(); reason != "" {
+			// Not a failure, and worth a line of its own: an operator who greps
+			// /var/log and finds nothing needs to be told where the records went
+			// and why, not left to infer it from a path they did not expect.
+			auditLines = append(auditLines, field("fell back because", reason))
+		}
+	}
+	section(b, "Audit trail", auditLines)
+
 	// The privilege probe and the container probe both cost a subprocess, and
 	// both are memoised on Resolved -- so asking here is free for a `check` that
 	// already asked, and is the same answer either way. That is the point.

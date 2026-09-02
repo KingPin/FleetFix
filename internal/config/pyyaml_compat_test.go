@@ -133,8 +133,8 @@ func tagged(v any) any {
 		case math.IsInf(t, -1):
 			return []any{"float", "-inf"}
 		}
-		// Python's repr, which for a finite float is what jsonFloat spells.
-		return []any{"float", jsonFloat(t)}
+		// Python's repr, which for a finite float is what PyJSONFloat spells.
+		return []any{"float", PyJSONFloat(t)}
 	case string:
 		return []any{"str", t}
 	case []byte:

@@ -129,6 +129,10 @@ jobs:
           # code -- and the paths worth testing are exactly the ones that only run
           # when something has already gone wrong.
           internal/cli/checkcmd=95
+          # The only command that changes the host. Every branch decides whether a
+          # binary is replaced, refused, or announced as replaced when it was not,
+          # and the refusals are exactly the paths that only run on a bad day.
+          internal/cli/updatecmd=95
           # A leaf package of pure arithmetic that decides whether a host pages
           # anyone. Every bound in it was measured off v1's own severity
           # functions, and an untested branch is a fleet that stays green.

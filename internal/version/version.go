@@ -11,7 +11,7 @@
 //
 // Values are bare, with no leading "v": v1.6.0's `--version` printed "1.6.0",
 // the release asserts `--version` equals the tag minus its "v", and the updater
-// compares versions with semver, which tolerates either form.
+// compares versions by PEP 440, which tolerates either form.
 package version
 
 import (

@@ -1,12 +1,14 @@
 package resolve
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/KingPin/FleetFix/v2/internal/audit"
 	"github.com/KingPin/FleetFix/v2/internal/cmdrun"
 	"github.com/KingPin/FleetFix/v2/internal/config"
 	"github.com/KingPin/FleetFix/v2/internal/container"
@@ -45,6 +47,7 @@ func noEnv(string) string { return "" }
 // /proc. Every test starts here and adds only the fact it is about.
 func bare(t *testing.T) Options {
 	t.Helper()
+	trail := t.TempDir()
 	return Options{
 		Paths:      testPaths(t),
 		Runner:     cmdrun.NewFake(),
@@ -52,6 +55,9 @@ func bare(t *testing.T) Options {
 		Getenv:     noEnv,
 		Privilege:  &privilege.Prober{Runner: cmdrun.NewFake(), UID: 1000},
 		DetectHost: func() report.Host { return report.Host{} },
+		// Into the test's own directory. The default answers /var/log for a root
+		// process, and the CI smoke matrix runs a root leg.
+		AuditPath: func() (string, error) { return filepath.Join(trail, "audit.log"), nil },
 	}
 }
 
@@ -395,4 +401,139 @@ func TestTheZeroOptionsResolvesThisHost(t *testing.T) {
 			t.Errorf("%s was not looked for in both layers", name)
 		}
 	}
+}
+
+// The identity the report envelope names and the identity in the trail have to
+// be one identity. Two resolutions is how a record says "unknown" on a host
+// whose report says "bob", and both would be telling the truth about what they
+// read.
+func TestTheTrailIsWrittenAsTheSameOperatorTheReportNames(t *testing.T) {
+	opts := bare(t)
+	opts.Getenv = env(map[string]string{"USER": "bob", "SSH_CONNECTION": "10.0.0.9 51234 10.0.0.1 22"})
+	writeYAML(t, opts.Paths.SystemDir, config.IdentityFile, "principals:\n  bob: bob@corp.example\n")
+
+	r := New(opts)
+	w, err := r.Audit()
+	if err != nil {
+		t.Fatalf("Audit: %v", err)
+	}
+	if err := w.Event("fleetfix.launch", nil); err != nil {
+		t.Fatalf("Event: %v", err)
+	}
+
+	line := readTrail(t, w.Path())
+	for _, want := range []string{
+		`"unix_user": "bob"`,
+		`"auth_principal": "bob@corp.example"`,
+		`"source_ip": "10.0.0.9"`,
+	} {
+		if !strings.Contains(line, want) {
+			t.Errorf("the record does not carry %s:\n%s", want, line)
+		}
+	}
+	if op := r.Meta(t.Context()).Operator; op.UnixUser != "bob" || op.AuthPrincipal != "bob@corp.example" {
+		t.Errorf("the envelope names a different operator: %+v", op)
+	}
+}
+
+// One writer per process. The session id joins a launch to the exit that
+// followed it, and the sequence orders records a millisecond stamp cannot --
+// two writers would issue two of each and the trail would read as two runs.
+func TestConcurrentCallersShareOneWriter(t *testing.T) {
+	r := New(bare(t))
+
+	const n = 20
+	var wg sync.WaitGroup
+	got := make([]*audit.Writer, n)
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			w, err := r.Audit()
+			if err != nil {
+				t.Errorf("Audit: %v", err)
+				return
+			}
+			got[i] = w
+		}()
+	}
+	wg.Wait()
+
+	for i, w := range got {
+		if w != got[0] {
+			t.Fatalf("caller %d got a different writer", i)
+		}
+	}
+}
+
+// Opening the trail creates the file, so a read-only front door must not do it.
+// An empty audit log on every host in a fleet is a trail that says nothing and
+// looks like it should.
+func TestNewDoesNotOpenTheTrail(t *testing.T) {
+	opts := bare(t)
+	var asked int
+	inner := opts.AuditPath
+	opts.AuditPath = func() (string, error) { asked++; return inner() }
+
+	r := New(opts)
+	if asked != 0 {
+		t.Fatal("New opened the audit trail; check --json and doctor would leave one on every host")
+	}
+
+	if _, err := r.Audit(); err != nil {
+		t.Fatalf("Audit: %v", err)
+	}
+	if asked != 1 {
+		t.Errorf("the path was resolved %d times, want once", asked)
+	}
+}
+
+// A trail that will not open is the caller's problem to act on: a destructive
+// action has to be refused, which is the only thing that makes the local file
+// authoritative rather than aspirational.
+func TestAnUnopenableTrailIsReportedToTheCaller(t *testing.T) {
+	opts := bare(t)
+	opts.AuditPath = func() (string, error) {
+		return filepath.Join(t.TempDir(), "no-such-dir", "audit.log"), nil
+	}
+
+	if _, err := New(opts).Audit(); err == nil {
+		t.Fatal("Audit succeeded on a path with no parent directory")
+	}
+}
+
+// The fallback reason is doctor's to report, not a failure: the path beside it
+// is usable either way, and "the trail is under XDG_STATE_HOME because /var/log
+// is not writable by this user" is the answer to a question an operator asks
+// after finding an empty file.
+func TestTheFallbackReasonIsKeptForDoctor(t *testing.T) {
+	opts := bare(t)
+	path := filepath.Join(t.TempDir(), "audit.log")
+	opts.AuditPath = func() (string, error) {
+		return path, errors.New("/var/log/fleetfix-audit.log: permission denied")
+	}
+
+	r := New(opts)
+	if got := r.AuditFallback(); got != "" {
+		t.Errorf("a reason was reported before anything opened the trail: %q", got)
+	}
+	w, err := r.Audit()
+	if err != nil {
+		t.Fatalf("Audit refused a usable fallback path: %v", err)
+	}
+	if w.Path() != path {
+		t.Errorf("writing to %q, want the fallback %q", w.Path(), path)
+	}
+	if !strings.Contains(r.AuditFallback(), "permission denied") {
+		t.Errorf("the reason was lost: %q", r.AuditFallback())
+	}
+}
+
+func readTrail(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading the trail: %v", err)
+	}
+	return string(data)
 }

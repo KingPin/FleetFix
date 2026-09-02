@@ -24,8 +24,8 @@ import (
 //
 // This is the straight port, and it is what the differential compares. It re-reads
 // the whole file, which at a 2-second refresh over a multi-megabyte trail is the
-// allocation problem M4 replaces with an offset-and-inode tailer -- but the
-// replacement has to agree with this first.
+// allocation problem Tailer solves -- but a caller that wants agreement with v1 line
+// for line still comes here, and Tailer is checked against it.
 func ReadRecent(path string, limit int) []any {
 	data, err := os.ReadFile(path) //nolint:gosec // the path is the argument; naming a file is the whole call
 	if err != nil {
@@ -41,8 +41,8 @@ func ReadRecent(path string, limit int) []any {
 	return ParseRecords(data, limit)
 }
 
-// ParseRecords is ReadRecent's parse half, split out so the M4 tailer can feed it a
-// window of bytes instead of a whole file.
+// ParseRecords is ReadRecent's parse half, split out so Tailer can feed it a window of
+// bytes instead of a whole file.
 func ParseRecords(data []byte, limit int) []any {
 	lines := pytext.SplitLines(string(data))
 	// lines[-limit:] -- and Python's -0 is 0, so a limit of zero is every line, not

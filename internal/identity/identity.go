@@ -1,5 +1,5 @@
-// Package identity answers "who is doing this?" for the report envelope and,
-// from M4, for every audit record.
+// Package identity answers "who is doing this?" for the report envelope and for
+// every audit record audit.Writer stamps.
 //
 // The unix user and the source IP are read exactly as v1 read them, because the
 // audit log's byte compatibility depends on it: the same host, the same session

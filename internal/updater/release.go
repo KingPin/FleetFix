@@ -18,7 +18,7 @@ import (
 //
 // v1 raises it in the fetcher, before parse_release is reached, and check_for_update
 // catches everything and reports no update. Reproduced here as an error rather than
-// as a silent absence so the M4 checker can log which of the two happened -- a rate
+// as a silent absence so Checker.Check can report which of the two happened -- a rate
 // limit body and a genuine "no releases yet" both end in no update, and only one of
 // them is worth telling the operator about.
 var ErrNotAnObject = errors.New("releases API returned non-object")
